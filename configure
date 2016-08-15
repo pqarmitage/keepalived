@@ -631,6 +631,7 @@ HAVE_SPHINX_BUILD
 SPHINXBUILDNAME
 WITH_NAMESPACES_FALSE
 WITH_NAMESPACES_TRUE
+DBUS_SUPPORT
 SNMP_RFCV3_FALSE
 SNMP_RFCV3_TRUE
 SNMP_RFCV2_FALSE
@@ -777,6 +778,7 @@ enable_snmp_rfc
 enable_snmp_rfcv2
 enable_snmp_rfcv3
 enable_snmp_reply_v3_for_v2
+enable_dbus
 enable_sha1
 enable_vrrp_auth
 enable_routes
@@ -1425,6 +1427,7 @@ Optional Features:
   --enable-snmp-rfcv2     compile with SNMP RFC2787 (VRRPv2) support
   --enable-snmp-rfcv3     compile with SNMP RFC6257 (VRRPv3) support
   --disable-snmp-reply-v3-for-v2 disable RFC6257 responses for VRRPv2 instances
+  --enable-dbus           compile with dbus support
   --enable-sha1           compile with SHA1 support
   --disable-vrrp-auth     compile without VRRP authentication
   --disable-routes        compile without ip rules/routes
@@ -3254,6 +3257,11 @@ fi
 # Check whether --enable-snmp-reply-v3-for-v2 was given.
 if test "${enable_snmp_reply_v3_for_v2+set}" = set; then :
   enableval=$enable_snmp_reply_v3_for_v2;
+fi
+
+# Check whether --enable-dbus was given.
+if test "${enable_dbus+set}" = set; then :
+  enableval=$enable_dbus;
 fi
 
 # Check whether --enable-sha1 was given.
@@ -8118,6 +8126,111 @@ else
 fi
 
 
+DBUS_SUPPORT=No
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for g_bus_own_name in -lgio-2.0" >&5
+$as_echo_n "checking for g_bus_own_name in -lgio-2.0... " >&6; }
+if ${ac_cv_lib_gio_2_0_g_bus_own_name+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lgio-2.0  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char g_bus_own_name ();
+int
+main ()
+{
+return g_bus_own_name ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_gio_2_0_g_bus_own_name=yes
+else
+  ac_cv_lib_gio_2_0_g_bus_own_name=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_gio_2_0_g_bus_own_name" >&5
+$as_echo "$ac_cv_lib_gio_2_0_g_bus_own_name" >&6; }
+if test "x$ac_cv_lib_gio_2_0_g_bus_own_name" = xyes; then :
+
+     if test 1 -ge 2; then
+      PKG_PFX=
+    else
+      PKG_PFX=KA
+    fi
+    ADD_NEW=
+   eval var=\$${PKG_PFX}_CPPFLAGS
+    for item in $(pkg-config --cflags-only-I gio-2.0); do
+      echo " $var " | $GREP -q " $item "
+      if test $? -ne 0; then
+	ADD_NEW="$ADD_NEW $item"
+      fi
+    done
+    eval ${PKG_PFX}_CPPFLAGS=\"\$${PKG_PFX}_CPPFLAGS $ADD_NEW\"
+
+    ADD_NEW=
+   eval var=\$${PKG_PFX}_CFLAGS
+    for item in $(pkg-config --cflags-only-other gio-2.0); do
+      echo " $var " | $GREP -q " $item "
+      if test $? -ne 0; then
+	ADD_NEW="$ADD_NEW $item"
+      fi
+    done
+    eval ${PKG_PFX}_CFLAGS=\"\$${PKG_PFX}_CFLAGS $ADD_NEW\"
+
+    ADD_NEW=
+   eval var=\$${PKG_PFX}_LDFLAGS
+    for item in $(pkg-config --libs gio-2.0); do
+      echo " $var " | $GREP -q " $item "
+      if test $? -ne 0; then
+	ADD_NEW="$ADD_NEW $item"
+      fi
+    done
+    eval ${PKG_PFX}_LDFLAGS=\"\$${PKG_PFX}_LDFLAGS $ADD_NEW\"
+
+    ADD_NEW=
+   eval var=\$${PKG_PFX}_LIBS
+    for item in $(pkg-config --libs gio-2.0); do
+      echo " $var " | $GREP -q " $item "
+      if test $? -ne 0; then
+	ADD_NEW="$ADD_NEW $item"
+      fi
+    done
+    eval ${PKG_PFX}_LIBS=\"\$${PKG_PFX}_LIBS $ADD_NEW\"
+
+
+    DBUS_SUPPORT=Yes
+
+$as_echo "#define _WITH_DBUS_  1 " >>confdefs.h
+
+    KA_LDFLAGS="$KA_LDFLAGS -lpthread"
+    BUILD_OPTIONS="$BUILD_OPTIONS DBUS"
+
+else
+
+  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: keepalived will be built without dbus support." >&5
+$as_echo "$as_me: WARNING: keepalived will be built without dbus support." >&2;}
+
+fi
+
+
+if test "${enable_dbus}" = "no"; then
+  DBUS_SUPPORT=No
+fi
+
+
 SHA1_SUPPORT=No
 if test "${enable_sha1}" = yes; then
   for ac_header in openssl/sha.h
@@ -9918,6 +10031,7 @@ echo "SNMP RFCv3 support       : ${SNMP_RFCV3_SUPPORT}"
 if test ${SNMP_RFCV3_SUPPORT} = Yes; then
   echo "SNMP send V3 for V2      : ${SNMP_V3_FOR_V2}"
 fi
+echo "DBUS support             : ${DBUS_SUPPORT}"
 echo "SHA1 support             : ${SHA1_SUPPORT}"
 echo "Use Debug flags          : ${ENABLE_DEBUG}"
 echo "Memory alloc check       : ${MEM_CHECK}"

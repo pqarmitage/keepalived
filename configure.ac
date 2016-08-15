@@ -91,6 +91,8 @@ AC_ARG_ENABLE(snmp-rfcv3,
   [  --enable-snmp-rfcv3     compile with SNMP RFC6257 (VRRPv3) support])
 AC_ARG_ENABLE(snmp-reply-v3-for-v2,
   [  --disable-snmp-reply-v3-for-v2 disable RFC6257 responses for VRRPv2 instances])
+AC_ARG_ENABLE(dbus,
+  [  --enable-dbus           compile with dbus support])
 AC_ARG_ENABLE(sha1,
   [  --enable-sha1           compile with SHA1 support])
 AC_ARG_ENABLE(vrrp-auth,
@@ -757,6 +759,26 @@ AM_CONDITIONAL([SNMP_RFC], [test $SNMP_RFC_SUPPORT = Yes])
 AM_CONDITIONAL([SNMP_RFCV2], [test $SNMP_RFCV2_SUPPORT = Yes])
 AM_CONDITIONAL([SNMP_RFCV3], [test $SNMP_RFCV3_SUPPORT = Yes])
 
+dnl ----[ Check for Dbus support ]----
+DBUS_SUPPORT=No
+AC_CHECK_LIB(gio-2.0, g_bus_own_name,
+  [
+    add_pkg_config([gio-2.0])
+    DBUS_SUPPORT=Yes
+    AC_DEFINE([_WITH_DBUS_], [ 1 ], [Define to 1 to have DBUS support])
+    add_to_var([KA_LDFLAGS], [-lpthread])
+    add_build_opt([DBUS])
+  ],
+  [
+  AC_MSG_WARN([keepalived will be built without dbus support.])
+  ])
+
+dnl ----[ DBus or not ? ]----
+if test "${enable_dbus}" = "no"; then
+  DBUS_SUPPORT=No
+fi
+AC_SUBST(DBUS_SUPPORT)
+
 dnl ----[ SHA1 or not ? ]----
 SHA1_SUPPORT=No
 if test "${enable_sha1}" = yes; then
@@ -873,6 +895,7 @@ echo "SNMP RFCv3 support       : ${SNMP_RFCV3_SUPPORT}"
 if test ${SNMP_RFCV3_SUPPORT} = Yes; then
   echo "SNMP send V3 for V2      : ${SNMP_V3_FOR_V2}"
 fi
+echo "DBUS support             : ${DBUS_SUPPORT}"
 echo "SHA1 support             : ${SHA1_SUPPORT}"
 echo "Use Debug flags          : ${ENABLE_DEBUG}"
 echo "Memory alloc check       : ${MEM_CHECK}"

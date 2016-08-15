@@ -95,18 +95,20 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 sbin_PROGRAMS = keepalived$(EXEEXT)
+@WITH_VRRP_TRUE@am__append_1 = -lpthread
 subdir = keepalived
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
-DIST_COMMON = $(srcdir)/Makefile.am $(noinst_HEADERS) \
-	$(am__DIST_COMMON)
+DIST_COMMON = $(srcdir)/Makefile.am $(dist_dbusinstance_DATA) \
+	$(dist_dbussystem_DATA) $(noinst_HEADERS) $(am__DIST_COMMON)
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/lib/config.h
 CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(configdir)" \
+	"$(DESTDIR)$(dbusinstancedir)" "$(DESTDIR)$(dbussystemdir)" \
 	"$(DESTDIR)$(initdir)" "$(DESTDIR)$(sysconfigdir)" \
 	"$(DESTDIR)$(systemddir)"
 PROGRAMS = $(sbin_PROGRAMS)
@@ -185,7 +187,9 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
-DATA = $(config_DATA) $(init_DATA) $(sysconfig_DATA) $(systemd_DATA)
+DATA = $(config_DATA) $(dist_dbusinstance_DATA) \
+	$(dist_dbussystem_DATA) $(init_DATA) $(sysconfig_DATA) \
+	$(systemd_DATA)
 HEADERS = $(noinst_HEADERS)
 RECURSIVE_CLEAN_TARGETS = mostlyclean-recursive clean-recursive	\
   distclean-recursive maintainer-clean-recursive
@@ -257,6 +261,7 @@ CFLAGS = @CFLAGS@
 CPP = @CPP@
 CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
+DBUS_SUPPORT = @DBUS_SUPPORT@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
 ECHO_C = @ECHO_C@
@@ -347,7 +352,7 @@ top_srcdir = @top_srcdir@
 AM_CPPFLAGS = $(KA_CPPFLAGS) $(DEBUG_CPPFLAGS) -I$(srcdir)/include -I \
 	$(top_srcdir)/lib
 AM_CFLAGS = $(KA_CFLAGS) $(DEBUG_CFLAGS)
-AM_LDFLAGS = $(KA_LDFLAGS) $(KA_LIBS) $(DEBUG_LDFLAGS)
+AM_LDFLAGS = $(KA_LDFLAGS) $(KA_LIBS) $(DEBUG_LDFLAGS) $(am__append_1)
 keepalived_SOURCES = main.c
 noinst_HEADERS = $(srcdir)/include/*.h
 @WITH_IPVS_TRUE@IPVS_SUBDIR = check
@@ -365,6 +370,10 @@ initdir = $(sysconfdir)/rc.d/init.d
 init_DATA = etc/init.d/keepalived.init
 systemddir = $(prefix)/lib/systemd/system
 systemd_DATA = keepalived.service
+dbusinstancedir = @datadir@/dbus-1/interfaces
+dist_dbusinstance_DATA = share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Vrrp.xml share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Instance.xml
+dbussystemdir = @sysconfdir@/dbus-1/system.d
+dist_dbussystem_DATA = etc/dbus-1/system.d/org.@PACKAGE@.Vrrp1.conf
 all: all-recursive
 
 .SUFFIXES:
@@ -487,6 +496,48 @@ uninstall-configDATA:
 	@list='$(config_DATA)'; test -n "$(configdir)" || list=; \
 	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
 	dir='$(DESTDIR)$(configdir)'; $(am__uninstall_files_from_dir)
+install-dist_dbusinstanceDATA: $(dist_dbusinstance_DATA)
+	@$(NORMAL_INSTALL)
+	@list='$(dist_dbusinstance_DATA)'; test -n "$(dbusinstancedir)" || list=; \
+	if test -n "$$list"; then \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(dbusinstancedir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(dbusinstancedir)" || exit 1; \
+	fi; \
+	for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  echo "$$d$$p"; \
+	done | $(am__base_list) | \
+	while read files; do \
+	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(dbusinstancedir)'"; \
+	  $(INSTALL_DATA) $$files "$(DESTDIR)$(dbusinstancedir)" || exit $$?; \
+	done
+
+uninstall-dist_dbusinstanceDATA:
+	@$(NORMAL_UNINSTALL)
+	@list='$(dist_dbusinstance_DATA)'; test -n "$(dbusinstancedir)" || list=; \
+	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
+	dir='$(DESTDIR)$(dbusinstancedir)'; $(am__uninstall_files_from_dir)
+install-dist_dbussystemDATA: $(dist_dbussystem_DATA)
+	@$(NORMAL_INSTALL)
+	@list='$(dist_dbussystem_DATA)'; test -n "$(dbussystemdir)" || list=; \
+	if test -n "$$list"; then \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(dbussystemdir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(dbussystemdir)" || exit 1; \
+	fi; \
+	for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  echo "$$d$$p"; \
+	done | $(am__base_list) | \
+	while read files; do \
+	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(dbussystemdir)'"; \
+	  $(INSTALL_DATA) $$files "$(DESTDIR)$(dbussystemdir)" || exit $$?; \
+	done
+
+uninstall-dist_dbussystemDATA:
+	@$(NORMAL_UNINSTALL)
+	@list='$(dist_dbussystem_DATA)'; test -n "$(dbussystemdir)" || list=; \
+	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
+	dir='$(DESTDIR)$(dbussystemdir)'; $(am__uninstall_files_from_dir)
 install-initDATA: $(init_DATA)
 	@$(NORMAL_INSTALL)
 	@list='$(init_DATA)'; test -n "$(initdir)" || list=; \
@@ -710,7 +761,7 @@ check: check-recursive
 all-am: Makefile $(PROGRAMS) $(DATA) $(HEADERS)
 installdirs: installdirs-recursive
 installdirs-am:
-	for dir in "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(configdir)" "$(DESTDIR)$(initdir)" "$(DESTDIR)$(sysconfigdir)" "$(DESTDIR)$(systemddir)"; do \
+	for dir in "$(DESTDIR)$(sbindir)" "$(DESTDIR)$(configdir)" "$(DESTDIR)$(dbusinstancedir)" "$(DESTDIR)$(dbussystemdir)" "$(DESTDIR)$(initdir)" "$(DESTDIR)$(sysconfigdir)" "$(DESTDIR)$(systemddir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-recursive
@@ -766,7 +817,8 @@ info: info-recursive
 
 info-am:
 
-install-data-am: install-configDATA install-initDATA \
+install-data-am: install-configDATA install-dist_dbusinstanceDATA \
+	install-dist_dbussystemDATA install-initDATA \
 	install-sysconfigDATA install-systemdDATA
 	@$(NORMAL_INSTALL)
 	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
@@ -813,7 +865,8 @@ ps: ps-recursive
 
 ps-am:
 
-uninstall-am: uninstall-configDATA uninstall-initDATA \
+uninstall-am: uninstall-configDATA uninstall-dist_dbusinstanceDATA \
+	uninstall-dist_dbussystemDATA uninstall-initDATA \
 	uninstall-sbinPROGRAMS uninstall-sysconfigDATA \
 	uninstall-systemdDATA
 
@@ -825,16 +878,19 @@ uninstall-am: uninstall-configDATA uninstall-initDATA \
 	ctags ctags-am distclean distclean-compile distclean-generic \
 	distclean-tags distdir dvi dvi-am html html-am info info-am \
 	install install-am install-configDATA install-data \
-	install-data-am install-data-hook install-dvi install-dvi-am \
-	install-exec install-exec-am install-html install-html-am \
-	install-info install-info-am install-initDATA install-man \
-	install-pdf install-pdf-am install-ps install-ps-am \
-	install-sbinPROGRAMS install-strip install-sysconfigDATA \
-	install-systemdDATA installcheck installcheck-am installdirs \
-	installdirs-am maintainer-clean maintainer-clean-generic \
-	mostlyclean mostlyclean-compile mostlyclean-generic pdf pdf-am \
-	ps ps-am tags tags-am uninstall uninstall-am \
-	uninstall-configDATA uninstall-initDATA uninstall-sbinPROGRAMS \
+	install-data-am install-data-hook \
+	install-dist_dbusinstanceDATA install-dist_dbussystemDATA \
+	install-dvi install-dvi-am install-exec install-exec-am \
+	install-html install-html-am install-info install-info-am \
+	install-initDATA install-man install-pdf install-pdf-am \
+	install-ps install-ps-am install-sbinPROGRAMS install-strip \
+	install-sysconfigDATA install-systemdDATA installcheck \
+	installcheck-am installdirs installdirs-am maintainer-clean \
+	maintainer-clean-generic mostlyclean mostlyclean-compile \
+	mostlyclean-generic pdf pdf-am ps ps-am tags tags-am uninstall \
+	uninstall-am uninstall-configDATA \
+	uninstall-dist_dbusinstanceDATA uninstall-dist_dbussystemDATA \
+	uninstall-initDATA uninstall-sbinPROGRAMS \
 	uninstall-sysconfigDATA uninstall-systemdDATA
 
 .PRECIOUS: Makefile

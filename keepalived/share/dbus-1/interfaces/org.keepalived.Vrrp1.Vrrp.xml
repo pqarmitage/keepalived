@@ -1,0 +1,12 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name='org.keepalived.Vrrp1.Vrrp'>
+    <method name='PrintData'>
+    </method>
+    <method name='PrintStats'>
+	</method>
+	<signal name="VrrpStopped">
+	</signal>
+  </interface>
+</node>
