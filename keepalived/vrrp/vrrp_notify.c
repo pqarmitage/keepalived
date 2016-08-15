@@ -27,7 +27,9 @@
 
 /* local include */
 #include "vrrp_notify.h"
+#ifdef _WITH_DBUS_
 #include "vrrp_dbus.h"
+#endif
 #include "memory.h"
 #include "notify.h"
 #include "logger.h"
@@ -188,7 +190,10 @@ notify_instance_exec(vrrp_t * vrrp, int state)
 		ret = 1;
 	}
 
+#ifdef _WITH_DBUS_
 	dbus_send_state_signal(vrrp); // send signal to all subscribers
+#endif
+
 	return ret;
 }
 

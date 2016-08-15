@@ -631,7 +631,8 @@ HAVE_SPHINX_BUILD
 SPHINXBUILDNAME
 WITH_NAMESPACES_FALSE
 WITH_NAMESPACES_TRUE
-DBUS_SUPPORT
+WITH_DBUS_FALSE
+WITH_DBUS_TRUE
 SNMP_RFCV3_FALSE
 SNMP_RFCV3_TRUE
 SNMP_RFCV2_FALSE
@@ -8127,7 +8128,8 @@ fi
 
 
 DBUS_SUPPORT=No
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for g_bus_own_name in -lgio-2.0" >&5
+if test "$enable_dbus" = yes; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking for g_bus_own_name in -lgio-2.0" >&5
 $as_echo_n "checking for g_bus_own_name in -lgio-2.0... " >&6; }
 if ${ac_cv_lib_gio_2_0_g_bus_own_name+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -8165,7 +8167,7 @@ fi
 $as_echo "$ac_cv_lib_gio_2_0_g_bus_own_name" >&6; }
 if test "x$ac_cv_lib_gio_2_0_g_bus_own_name" = xyes; then :
 
-     if test 1 -ge 2; then
+       if test 1 -ge 2; then
       PKG_PFX=
     else
       PKG_PFX=KA
@@ -8211,23 +8213,24 @@ if test "x$ac_cv_lib_gio_2_0_g_bus_own_name" = xyes; then :
     eval ${PKG_PFX}_LIBS=\"\$${PKG_PFX}_LIBS $ADD_NEW\"
 
 
-    DBUS_SUPPORT=Yes
+      DBUS_SUPPORT=Yes
 
 $as_echo "#define _WITH_DBUS_  1 " >>confdefs.h
 
-    KA_LDFLAGS="$KA_LDFLAGS -lpthread"
-    BUILD_OPTIONS="$BUILD_OPTIONS DBUS"
+#      add_to_var([KA_LDFLAGS], [-lpthread])
+      BUILD_OPTIONS="$BUILD_OPTIONS DBUS"
 
 else
-
-  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: keepalived will be built without dbus support." >&5
-$as_echo "$as_me: WARNING: keepalived will be built without dbus support." >&2;}
-
+  as_fn_error $? "DBUS support requested but libgio-2.0 not found." "$LINENO" 5
 fi
 
-
-if test "${enable_dbus}" = "no"; then
-  DBUS_SUPPORT=No
+fi
+ if test $DBUS_SUPPORT = Yes; then
+  WITH_DBUS_TRUE=
+  WITH_DBUS_FALSE='#'
+else
+  WITH_DBUS_TRUE='#'
+  WITH_DBUS_FALSE=
 fi
 
 
@@ -8655,6 +8658,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${SNMP_RFCV3_TRUE}" && test -z "${SNMP_RFCV3_FALSE}"; then
   as_fn_error $? "conditional \"SNMP_RFCV3\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WITH_DBUS_TRUE}" && test -z "${WITH_DBUS_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_DBUS\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${WITH_NAMESPACES_TRUE}" && test -z "${WITH_NAMESPACES_FALSE}"; then

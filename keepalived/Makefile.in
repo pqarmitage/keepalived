@@ -95,14 +95,14 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 sbin_PROGRAMS = keepalived$(EXEEXT)
-@WITH_VRRP_TRUE@am__append_1 = -lpthread
 subdir = keepalived
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
-DIST_COMMON = $(srcdir)/Makefile.am $(dist_dbusinstance_DATA) \
-	$(dist_dbussystem_DATA) $(noinst_HEADERS) $(am__DIST_COMMON)
+DIST_COMMON = $(srcdir)/Makefile.am $(am__dist_dbusinstance_DATA_DIST) \
+	$(am__dist_dbussystem_DATA_DIST) $(noinst_HEADERS) \
+	$(am__DIST_COMMON)
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = $(top_builddir)/lib/config.h
 CONFIG_CLEAN_FILES =
@@ -187,6 +187,11 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
+am__dist_dbusinstance_DATA_DIST =  \
+	share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Vrrp.xml \
+	share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Instance.xml
+am__dist_dbussystem_DATA_DIST =  \
+	etc/dbus-1/system.d/org.@PACKAGE@.Vrrp1.conf
 DATA = $(config_DATA) $(dist_dbusinstance_DATA) \
 	$(dist_dbussystem_DATA) $(init_DATA) $(sysconfig_DATA) \
 	$(systemd_DATA)
@@ -261,7 +266,6 @@ CFLAGS = @CFLAGS@
 CPP = @CPP@
 CPPFLAGS = @CPPFLAGS@
 CYGPATH_W = @CYGPATH_W@
-DBUS_SUPPORT = @DBUS_SUPPORT@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
 ECHO_C = @ECHO_C@
@@ -352,7 +356,7 @@ top_srcdir = @top_srcdir@
 AM_CPPFLAGS = $(KA_CPPFLAGS) $(DEBUG_CPPFLAGS) -I$(srcdir)/include -I \
 	$(top_srcdir)/lib
 AM_CFLAGS = $(KA_CFLAGS) $(DEBUG_CFLAGS)
-AM_LDFLAGS = $(KA_LDFLAGS) $(KA_LIBS) $(DEBUG_LDFLAGS) $(am__append_1)
+AM_LDFLAGS = $(KA_LDFLAGS) $(KA_LIBS) $(DEBUG_LDFLAGS)
 keepalived_SOURCES = main.c
 noinst_HEADERS = $(srcdir)/include/*.h
 @WITH_IPVS_TRUE@IPVS_SUBDIR = check
@@ -370,10 +374,10 @@ initdir = $(sysconfdir)/rc.d/init.d
 init_DATA = etc/init.d/keepalived.init
 systemddir = $(prefix)/lib/systemd/system
 systemd_DATA = keepalived.service
-dbusinstancedir = @datadir@/dbus-1/interfaces
-dist_dbusinstance_DATA = share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Vrrp.xml share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Instance.xml
-dbussystemdir = @sysconfdir@/dbus-1/system.d
-dist_dbussystem_DATA = etc/dbus-1/system.d/org.@PACKAGE@.Vrrp1.conf
+@WITH_DBUS_TRUE@dbusinstancedir = @datadir@/dbus-1/interfaces
+@WITH_DBUS_TRUE@dist_dbusinstance_DATA = share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Vrrp.xml share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Instance.xml
+@WITH_DBUS_TRUE@dbussystemdir = @sysconfdir@/dbus-1/system.d
+@WITH_DBUS_TRUE@dist_dbussystem_DATA = etc/dbus-1/system.d/org.@PACKAGE@.Vrrp1.conf
 all: all-recursive
 
 .SUFFIXES:

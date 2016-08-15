@@ -761,23 +761,17 @@ AM_CONDITIONAL([SNMP_RFCV3], [test $SNMP_RFCV3_SUPPORT = Yes])
 
 dnl ----[ Check for Dbus support ]----
 DBUS_SUPPORT=No
-AC_CHECK_LIB(gio-2.0, g_bus_own_name,
-  [
-    add_pkg_config([gio-2.0])
-    DBUS_SUPPORT=Yes
-    AC_DEFINE([_WITH_DBUS_], [ 1 ], [Define to 1 to have DBUS support])
-    add_to_var([KA_LDFLAGS], [-lpthread])
-    add_build_opt([DBUS])
-  ],
-  [
-  AC_MSG_WARN([keepalived will be built without dbus support.])
-  ])
-
-dnl ----[ DBus or not ? ]----
-if test "${enable_dbus}" = "no"; then
-  DBUS_SUPPORT=No
+if test "$enable_dbus" = yes; then
+  AC_CHECK_LIB(gio-2.0, g_bus_own_name,
+    [
+      add_pkg_config([gio-2.0])
+      DBUS_SUPPORT=Yes
+      AC_DEFINE([_WITH_DBUS_], [ 1 ], [Define to 1 to have DBUS support])
+      add_build_opt([DBUS])
+    ],
+    [AC_MSG_ERROR([DBUS support requested but libgio-2.0 not found.])])
 fi
-AC_SUBST(DBUS_SUPPORT)
+AM_CONDITIONAL([WITH_DBUS], [test $DBUS_SUPPORT = Yes])
 
 dnl ----[ SHA1 or not ? ]----
 SHA1_SUPPORT=No

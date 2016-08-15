@@ -25,7 +25,6 @@ endif
 if WITH_VRRP
   VRRP_SUBDIR		= vrrp
   VRRP_LIB		= vrrp/libvrrp.a
-  AM_LDFLAGS		+= -lpthread
 endif
 
 SUBDIRS			= core $(VRRP_SUBDIR) $(IPVS_SUBDIR)
@@ -48,11 +47,13 @@ init_DATA		= etc/init.d/keepalived.init
 systemddir		= $(prefix)/lib/systemd/system
 systemd_DATA		= keepalived.service
 
-dbusinstancedir		= @datadir@/dbus-1/interfaces
-dist_dbusinstance_DATA	= share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Vrrp.xml share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Instance.xml
+if WITH_DBUS
+  dbusinstancedir	= @datadir@/dbus-1/interfaces
+  dist_dbusinstance_DATA = share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Vrrp.xml share/dbus-1/interfaces/org.@PACKAGE@.Vrrp1.Instance.xml
 
-dbussystemdir		= @sysconfdir@/dbus-1/system.d
-dist_dbussystem_DATA	= etc/dbus-1/system.d/org.@PACKAGE@.Vrrp1.conf
+  dbussystemdir		= @sysconfdir@/dbus-1/system.d
+  dist_dbussystem_DATA	= etc/dbus-1/system.d/org.@PACKAGE@.Vrrp1.conf
+endif
 
 install-data-hook:
 	mv $(DESTDIR)/$(sysconfdir)/rc.d/init.d/keepalived.init $(DESTDIR)/$(sysconfdir)/rc.d/init.d/keepalived

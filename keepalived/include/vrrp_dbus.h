@@ -17,7 +17,7 @@
  *              as published by the Free Software Foundation; either version
  *              2 of the License, or (at your option) any later version.
  *
- * Copyright (C) 2001-2012 Alexandre Cassen, <acassen@gmail.com>
+ * Copyright (C) 2016-2016 Alexandre Cassen, <acassen@gmail.com>
  */
 
 #ifndef VRRP_DBUS_H
@@ -35,7 +35,7 @@
 #define DBUS_VRRP_INTERFACE_FILE_PATH           "/usr/share/dbus-1/interfaces/org.keepalived.Vrrp1.Vrrp.xml"
 #define DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH  "/usr/share/dbus-1/interfaces/org.keepalived.Vrrp1.Instance.xml"
 
-void dbus_main(void);
+void *dbus_main(__attribute__ ((unused)) void *);
 void dbus_send_state_signal(vrrp_t *);
 void dbus_stop(void);
 

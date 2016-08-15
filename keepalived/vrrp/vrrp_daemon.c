@@ -23,6 +23,9 @@
 #include "config.h"
 
 #include <string.h>
+#ifdef _WITH_DBUS_
+#include <pthread.h>
+#endif
 
 #include "vrrp_daemon.h"
 #include "vrrp_scheduler.h"
@@ -54,7 +57,9 @@
 #ifdef _WITH_SNMP_
   #include "vrrp_snmp.h"
 #endif
-#include "vrrp_dbus.h"
+#ifdef _WITH_DBUS_
+  #include "vrrp_dbus.h"
+#endif
 #ifdef _HAVE_LIBIPSET_
   #include "vrrp_ipset.h"
 #endif
@@ -62,7 +67,6 @@
 #include "main.h"
 #include "memory.h"
 #include "parser.h"
-#include <pthread.h>
 
 /* Forward declarations */
 static int print_vrrp_data(thread_t * thread);
@@ -134,7 +138,9 @@ stop_vrrp(int status)
 	free_interface_queue();
 	free_parent_mallocs_exit();
 
+#ifdef _WITH_DBUS_
 	dbus_stop();
+#endif
 
 	/*
 	 * Reached when terminate signal catched.
@@ -154,6 +160,10 @@ stop_vrrp(int status)
 static void
 start_vrrp(void)
 {
+#ifdef _WITH_DBUS_
+	pthread_t dbus_thread;
+#endif
+
 	/* Initialize sub-system */
 	init_interface_queue();
 	kernel_netlink_init();
@@ -234,8 +244,10 @@ start_vrrp(void)
 #endif
 	}
 
-	pthread_t dbus_thread;
-	pthread_create(&dbus_thread, NULL, &dbus_main, NULL);
+#ifdef _WITH_DBUS_
+	if (!reload)
+		pthread_create(&dbus_thread, NULL, &dbus_main, NULL);
+#endif
 
 	/* Complete VRRP initialization */
 	if (!vrrp_complete_init()) {
@@ -363,7 +375,10 @@ reload_vrrp_thread(thread_t * thread)
 #ifdef _MEM_CHECK_
 	mem_allocated = 0;
 #endif
-	dbus_stop();
+#ifdef _WITH_DBUS_
+// DBUS TODO - do we need to restart dbus?
+//	dbus_stop();
+#endif
 	start_vrrp();
 
 #ifdef _WITH_LVS_
