@@ -8217,7 +8217,6 @@ if test "x$ac_cv_lib_gio_2_0_g_bus_own_name" = xyes; then :
 
 $as_echo "#define _WITH_DBUS_  1 " >>confdefs.h
 
-#      add_to_var([KA_LDFLAGS], [-lpthread])
       BUILD_OPTIONS="$BUILD_OPTIONS DBUS"
 
 else

@@ -29,6 +29,7 @@
 #include "vrrp_data.h"
 #include "vrrp_if.h"
 #include "vrrp_print.h"
+#include "memory.h"
 #include "logger.h"
 
 /* Global file variables */
@@ -71,7 +72,7 @@ handle_get_property(GDBusConnection  *connection,
 					 GError          **error,
 					 gpointer          user_data)
 {
-	GVariant *ret;
+	GVariant *ret = NULL;
 
 	if (g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE) == 0) {
 
@@ -117,7 +118,6 @@ handle_method_call(GDBusConnection *connection,
 					gpointer               user_data)
 {
 	if (g_strcmp0(interface_name, DBUS_VRRP_INTERFACE) == 0) {
-
 		if (g_strcmp0(method_name, "PrintData") == 0) {
 			log_message(LOG_INFO, "Printing VRRP data for process(%d) on signal",
 				getpid());
@@ -131,29 +131,30 @@ handle_method_call(GDBusConnection *connection,
 		} else {
 			log_message(LOG_INFO, "This method has not been implemented yet");
 		}
-
 	} else if (g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE) == 0) {
-
 		if (g_strcmp0(method_name, "SendGarp") == 0) {
 			GVariant *name_call =  handle_get_property(connection, sender, object_path,
 												  interface_name, "Name", NULL, NULL);
 			gchar *name;
-			g_variant_get(name_call, "(&s)", &name);
+			if (!name_call)
+				log_message(LOG_INFO, "Name property not found");
+			else {
+				g_variant_get(name_call, "(&s)", &name);
 
-			list l = vrrp_data->vrrp;
-			element e;
-			for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
-				vrrp_t * vrrp = ELEMENT_DATA(e);
-				if (g_strcmp0(vrrp->iname, name) == 0) {
-				    vrrp_send_link_update(vrrp, 1);
-					g_dbus_method_invocation_return_value(invocation, NULL);
-					break;
+				list l = vrrp_data->vrrp;
+				element e;
+				for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
+					vrrp_t * vrrp = ELEMENT_DATA(e);
+					if (g_strcmp0(vrrp->iname, name) == 0) {
+						vrrp_send_link_update(vrrp, 1);
+						g_dbus_method_invocation_return_value(invocation, NULL);
+						break;
+					}
 				}
 			}
 		} else {
 			log_message(LOG_INFO, "This method has not been implemented yet");
 		}
-
 	} else {
 		log_message(LOG_INFO, "This interfce has not been implemented yet");
 	}
@@ -176,6 +177,7 @@ on_bus_acquired(GDBusConnection *connection,
 {
 	global_connection = connection;
 
+log_message(LOG_INFO, "Acquired the bus %s\n", name);
 	/* register VRRP object */
 	guint vrrp = g_dbus_connection_register_object(connection, DBUS_VRRP_OBJECT,
 												 vrrp_introspection_data->interfaces[0],
@@ -184,6 +186,9 @@ on_bus_acquired(GDBusConnection *connection,
 
 	/* for each available VRRP instance, register an object */
 	list l = vrrp_data->vrrp;
+	if (!l)
+		return;
+
 	element e;
 	guint instance;
 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
@@ -235,13 +240,14 @@ read_file(gchar* filepath)
 {
 	FILE * f;
 	long length;
-	gchar *ret;
+	gchar *ret = NULL;
+
 	f = fopen(filepath, "rb");
 	if (f) {
 		fseek(f, 0, SEEK_END);
 		length = ftell(f);
 		fseek(f, 0, SEEK_SET);
-		ret = malloc(length);
+		ret = MALLOC(length);
 		if (ret)
 			fread(ret, 1, length, f);
 		fclose(f);
@@ -274,13 +280,20 @@ dbus_main(__attribute__ ((unused)) void *unused)
 
 	/* read service interface data from xml files */
 	introspection_xml = read_file(DBUS_VRRP_INTERFACE_FILE_PATH);
+	if (!introspection_xml) {
+		log_message(LOG_INFO, "Unable to read Dbus file %s", DBUS_VRRP_INTERFACE_FILE_PATH);
+		return NULL;
+	}
 	vrrp_introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, NULL);
-	free(introspection_xml);
-	introspection_xml = NULL;
+	FREE(introspection_xml);
 
 	introspection_xml = read_file(DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH);
+	if (!introspection_xml) {
+		log_message(LOG_INFO, "Unable to read Dbus file %s", DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH);
+		return NULL;
+	}
 	vrrp_instance_introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, NULL);
-	free(introspection_xml);
+	FREE(introspection_xml);
 
 	owner_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
 							   DBUS_SERVICE_NAME,
