@@ -74,6 +74,10 @@ handle_get_property(GDBusConnection  *connection,
 {
 	GVariant *ret = NULL;
 
+	/* If the vrrp list is empty, we are not going to find a match */
+	if (LIST_ISEMPTY(vrrp_data->vrrp))
+		return NULL;
+
 	if (g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE) == 0) {
 
 		/* object_path will be in the form /org/keepalived/Vrrp1/Instance/INTERFACE/GROUP */
@@ -100,7 +104,7 @@ handle_get_property(GDBusConnection  *connection,
 		}
 
 	} else {
-		log_message(LOG_INFO, "This interfce has not been implemented yet");
+		log_message(LOG_INFO, "This interface has not been implemented yet");
 	}
 
 	return ret;
@@ -142,6 +146,8 @@ handle_method_call(GDBusConnection *connection,
 				g_variant_get(name_call, "(&s)", &name);
 
 				list l = vrrp_data->vrrp;
+				if (LIST_ISEMPTY(l))
+					return;
 				element e;
 				for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 					vrrp_t * vrrp = ELEMENT_DATA(e);
@@ -186,7 +192,7 @@ log_message(LOG_INFO, "Acquired the bus %s\n", name);
 
 	/* for each available VRRP instance, register an object */
 	list l = vrrp_data->vrrp;
-	if (!l)
+	if (LIST_ISEMPTY(l))
 		return;
 
 	element e;
