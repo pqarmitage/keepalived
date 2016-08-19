@@ -283,6 +283,9 @@ dbus_main(__attribute__ ((unused)) void *unused)
 	 * Instance is implemented by an Instance object for every VRRP Instance in vrrp_data.
 	 * It exposes instance specific methods and properties.
 	 */
+#ifdef DBUS_NEED_G_TYPE_INIT
+	g_type_init();
+#endif
 
 	/* read service interface data from xml files */
 	introspection_xml = read_file(DBUS_VRRP_INTERFACE_FILE_PATH);

@@ -11,6 +11,9 @@
 /* Year of build configuration */
 #undef COPYRIGHT_YEAR
 
+/* Define to 1 if need to call g_type_init() */
+#undef DBUS_NEED_G_TYPE_INIT
+
 /* Defined here if not found in <net/ethernet.h>. */
 #undef ETHERTYPE_IPV6
 

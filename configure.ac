@@ -775,6 +775,26 @@ if test "$enable_dbus" = yes; then
       DBUS_SUPPORT=Yes
       AC_DEFINE([_WITH_DBUS_], [ 1 ], [Define to 1 to have DBUS support])
       add_build_opt([DBUS])
+
+      dnl -- g_type_init() not needed and deprecated since glib 2.36
+      CFLAGS="$(pkg-config --cflags gio-2.0)"
+      LIBS="$(pkg-config --libs gio-2.0)"
+      AC_RUN_IFELSE(
+        [
+          AC_LANG_PROGRAM(
+            [[#include <gio/gio.h>]],
+	    [[return !g_thread_functions_for_glib_use.mutex_lock;]])],
+	[need_g_type_init=0],
+        [need_g_type_init=1],
+        [
+          AC_MSG_WARN([Cannot determine if need to call g_type_init(). Assuming yes for safety.])
+          need_g_type_init=1
+        ])
+      if test $need_g_type_init -eq 1; then
+        AC_DEFINE([DBUS_NEED_G_TYPE_INIT], [ 1 ], [Define to 1 if need to call g_type_init()])
+      fi
+      LIBS=
+      CFLAGS=
     ],
     [AC_MSG_ERROR([DBUS support requested but libgio-2.0 not found.])])
 fi

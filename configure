@@ -8222,6 +8222,44 @@ $as_echo "#define _WITH_DBUS_  1 " >>confdefs.h
 
       BUILD_OPTIONS="$BUILD_OPTIONS DBUS"
 
+            CFLAGS="$(pkg-config -cflags gio-2.0)"
+      LIBS="$(pkg-config --libs gio-2.0)"
+      if test "$cross_compiling" = yes; then :
+
+          { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Cannot determine if need to call g_type_init(). Assuming yes for safety." >&5
+$as_echo "$as_me: WARNING: Cannot determine if need to call g_type_init(). Assuming yes for safety." >&2;}
+          need_g_type_init=1
+
+else
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+          #include <gio/gio.h>
+int
+main ()
+{
+return !g_thread_functions_for_glib_use.mutex_lock;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_run "$LINENO"; then :
+  need_g_type_init=0
+else
+  need_g_type_init=1
+fi
+rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
+  conftest.$ac_objext conftest.beam conftest.$ac_ext
+fi
+
+      if test $need_g_type_init -eq 1; then
+
+$as_echo "#define DBUS_NEED_G_TYPE_INIT  1 " >>confdefs.h
+
+      fi
+      LIBS=
+      CFLAGS=
+
 else
   as_fn_error $? "DBUS support requested but libgio-2.0 not found." "$LINENO" 5
 fi
