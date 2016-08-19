@@ -47,7 +47,7 @@ dbus_send_state_signal(vrrp_t *vrrp)
 	GError *local_error;
 
 	gchar *object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
-								IF_NAME(vrrp->ifp), "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
+								IF_NAME(IF_BASE_IFP(vrrp->ifp)), "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
 	GVariant *args = g_variant_new("(u)", vrrp->state);
 
 	/* the interface will go through the initial state changes before
@@ -90,7 +90,7 @@ handle_get_property(GDBusConnection  *connection,
 		for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 			vrrp_t * vrrp = ELEMENT_DATA(e);
 			gchar *vrrp_vrid =  g_strdup_printf("%d", vrrp->vrid);
-			if (g_strcmp0(interface, IF_NAME(vrrp->ifp)) == 0
+			if (g_strcmp0(interface, IF_NAME(IF_BASE_IFP(vrrp->ifp))) == 0
 				&& g_strcmp0(group, vrrp_vrid) == 0 ) {
 				/* the property_name argument is the property we want to Get */
 				if (g_strcmp0(property_name, "Name") == 0)
@@ -200,7 +200,7 @@ log_message(LOG_INFO, "Acquired the bus %s\n", name);
 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 		vrrp_t * vrrp = ELEMENT_DATA(e);
 		gchar *vrid = g_strdup_printf("/%d", vrrp->vrid);
-		gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, IF_NAME(vrrp->ifp), vrid, NULL);
+		gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, IF_NAME(IF_BASE_IFP(vrrp->ifp)), vrid, NULL);
 		instance = g_dbus_connection_register_object(connection, path,
 													 vrrp_instance_introspection_data->interfaces[0],
 												 	&interface_vtable, NULL, NULL, NULL);
