@@ -24,6 +24,7 @@
 
 #include <pthread.h>
 #include <gio/gio.h>
+#include <ctype.h>
 
 #include "vrrp_dbus.h"
 #include "vrrp_data.h"
@@ -39,15 +40,34 @@ static GDBusConnection *global_connection;
 static GSList *objects = NULL;
 static GMainLoop *loop;
 
+/* The only characters that are valid in a dbus path are A-Z, a-z, 0-9, _ */
+static char *
+set_valid_path(char *valid_path, const char *path)
+{
+	const char *str_in;
+	char *str_out;
+
+	for (str_in = path, str_out = valid_path; *str_in; str_in++, str_out++) {
+		if (!isalnum(*str_in) && *str_in != '_')
+			*str_out = '_';
+		else
+			*str_out = *str_in;
+	}
+	*str_out = '\0';
+
+	return valid_path;
+}
+
 /* send signal VrrpStatusChange
  * containing the new state of vrrp */
 void
 dbus_send_state_signal(vrrp_t *vrrp)
 {
 	GError *local_error;
+	char standardized_name[sizeof vrrp->ifp->ifname];
 
 	gchar *object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
-								IF_NAME(IF_BASE_IFP(vrrp->ifp)), "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
+								set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
 	GVariant *args = g_variant_new("(u)", vrrp->state);
 
 	/* the interface will go through the initial state changes before
@@ -73,6 +93,7 @@ handle_get_property(GDBusConnection  *connection,
 					 gpointer          user_data)
 {
 	GVariant *ret = NULL;
+	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 
 	/* If the vrrp list is empty, we are not going to find a match */
 	if (LIST_ISEMPTY(vrrp_data->vrrp))
@@ -90,7 +111,11 @@ handle_get_property(GDBusConnection  *connection,
 		for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 			vrrp_t * vrrp = ELEMENT_DATA(e);
 			gchar *vrrp_vrid =  g_strdup_printf("%d", vrrp->vrid);
-			if (g_strcmp0(interface, IF_NAME(IF_BASE_IFP(vrrp->ifp))) == 0
+
+			/* The only valid characters in a path a A-Z, a-z, 0-9, _ */
+			set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp)));
+
+			if (g_strcmp0(interface, standardized_name) == 0
 				&& g_strcmp0(group, vrrp_vrid) == 0 ) {
 				/* the property_name argument is the property we want to Get */
 				if (g_strcmp0(property_name, "Name") == 0)
@@ -181,7 +206,9 @@ on_bus_acquired(GDBusConnection *connection,
 				 const gchar     *name,
 				 gpointer         user_data)
 {
+	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 	global_connection = connection;
+
 
 log_message(LOG_INFO, "Acquired the bus %s\n", name);
 	/* register VRRP object */
@@ -200,7 +227,8 @@ log_message(LOG_INFO, "Acquired the bus %s\n", name);
 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 		vrrp_t * vrrp = ELEMENT_DATA(e);
 		gchar *vrid = g_strdup_printf("/%d", vrrp->vrid);
-		gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, IF_NAME(IF_BASE_IFP(vrrp->ifp)), vrid, NULL);
+		gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), vrid, NULL);
+
 		instance = g_dbus_connection_register_object(connection, path,
 													 vrrp_instance_introspection_data->interfaces[0],
 												 	&interface_vtable, NULL, NULL, NULL);
