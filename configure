@@ -8222,7 +8222,7 @@ $as_echo "#define _WITH_DBUS_  1 " >>confdefs.h
 
       BUILD_OPTIONS="$BUILD_OPTIONS DBUS"
 
-            CFLAGS="$(pkg-config -cflags gio-2.0)"
+            CFLAGS="$(pkg-config --cflags gio-2.0)"
       LIBS="$(pkg-config --libs gio-2.0)"
       if test "$cross_compiling" = yes; then :
 
