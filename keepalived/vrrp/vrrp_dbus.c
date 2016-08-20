@@ -58,30 +58,6 @@ set_valid_path(char *valid_path, const char *path)
 	return valid_path;
 }
 
-/* send signal VrrpStatusChange
- * containing the new state of vrrp */
-void
-dbus_send_state_signal(vrrp_t *vrrp)
-{
-	GError *local_error;
-	char standardized_name[sizeof vrrp->ifp->ifname];
-
-	gchar *object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
-								set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
-	GVariant *args = g_variant_new("(u)", vrrp->state);
-
-	/* the interface will go through the initial state changes before
-	 * the main loop can be started and global_connection initialised */
-	if (global_connection == NULL) {
-		log_message(LOG_INFO, "Not connected to the org.keepalived.Vrrp1 bus");
-	} else {
-		g_dbus_connection_emit_signal(global_connection, NULL, object_path,
-										DBUS_VRRP_INSTANCE_INTERFACE,
-										"VrrpStatusChange", args, &local_error);
-	}
-	g_free(object_path);
-}
-
 /* handles reply to org.freedesktop.DBus.Properties.Get method on any object*/
 static GVariant *
 handle_get_property(GDBusConnection  *connection,
@@ -289,17 +265,7 @@ read_file(gchar* filepath)
 	return ret;
 }
 
-void
-dbus_stop(void)
-{
-	GError *local_error;
-	if (global_connection != NULL)
-			g_dbus_connection_emit_signal(global_connection, NULL, DBUS_VRRP_OBJECT,
-				   DBUS_VRRP_INTERFACE, "VrrpStopped", NULL, &local_error);
-	g_main_loop_quit(loop);
-}
-
-void *
+static void *
 dbus_main(__attribute__ ((unused)) void *unused)
 {
 	gchar *introspection_xml;
@@ -349,3 +315,48 @@ dbus_main(__attribute__ ((unused)) void *unused)
 	global_connection = NULL;
 	pthread_exit(0);
 }
+
+/* The following functions are run in the context of the main vrrp thread */
+
+/* send signal VrrpStatusChange
+ * containing the new state of vrrp */
+void
+dbus_send_state_signal(vrrp_t *vrrp)
+{
+	GError *local_error;
+	char standardized_name[sizeof vrrp->ifp->ifname];
+
+	gchar *object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
+								set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
+	GVariant *args = g_variant_new("(u)", vrrp->state);
+
+	/* the interface will go through the initial state changes before
+	 * the main loop can be started and global_connection initialised */
+	if (global_connection == NULL) {
+		log_message(LOG_INFO, "Not connected to the org.keepalived.Vrrp1 bus");
+	} else {
+		g_dbus_connection_emit_signal(global_connection, NULL, object_path,
+										DBUS_VRRP_INSTANCE_INTERFACE,
+										"VrrpStatusChange", args, &local_error);
+	}
+	g_free(object_path);
+}
+
+void
+dbus_start(void)
+{
+	pthread_t dbus_thread;
+
+	pthread_create(&dbus_thread, NULL, &dbus_main, NULL);
+}
+
+void
+dbus_stop(void)
+{
+	GError *local_error;
+	if (global_connection != NULL)
+			g_dbus_connection_emit_signal(global_connection, NULL, DBUS_VRRP_OBJECT,
+				   DBUS_VRRP_INTERFACE, "VrrpStopped", NULL, &local_error);
+	g_main_loop_quit(loop);
+}
+

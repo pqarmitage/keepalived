@@ -23,9 +23,6 @@
 #include "config.h"
 
 #include <string.h>
-#ifdef _WITH_DBUS_
-#include <pthread.h>
-#endif
 
 #include "vrrp_daemon.h"
 #include "vrrp_scheduler.h"
@@ -161,10 +158,6 @@ stop_vrrp(int status)
 static void
 start_vrrp(void)
 {
-#ifdef _WITH_DBUS_
-	pthread_t dbus_thread;
-#endif
-
 	/* Initialize sub-system */
 	init_interface_queue();
 	kernel_netlink_init();
@@ -247,7 +240,7 @@ start_vrrp(void)
 
 #ifdef _WITH_DBUS_
 	if (!reload && global_data->enable_dbus)
-		pthread_create(&dbus_thread, NULL, &dbus_main, NULL);
+		dbus_start();
 #endif
 
 	/* Complete VRRP initialization */
