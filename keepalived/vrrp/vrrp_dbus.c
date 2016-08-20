@@ -66,6 +66,7 @@ static GDBusConnection *global_connection;
 static GSList *objects = NULL;
 static GMainLoop *loop;
 
+/* Queues between main vrrp thread and dbus thread */
 static list dbus_in_queue, dbus_out_queue;
 static pthread_mutex_t in_queue_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t out_queue_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -106,14 +107,16 @@ process_method_call(dbus_action_t action, char *param, int val, bool return_data
 	list_add(dbus_in_queue, ent);
 	pthread_mutex_unlock(&in_queue_lock);
 
+	/* Tell the main thread that a queue entry is waiting. Any data works */
 	write(dbus_in_pipe[1], ent, 1);
+
+	/* Wait for a response */
 	while (read(dbus_out_pipe[0], ent, 1) == -1 && errno == EINTR) {
 		log_message(LOG_INFO, "dbus_out_pipe read returned EINTR");
 	}
 
-	pthread_mutex_lock(&out_queue_lock);
-
 	/* We could loop through looking for e->data == ent */
+	pthread_mutex_lock(&out_queue_lock);
 	if (!LIST_ISEMPTY(dbus_out_queue)) {
 		e = LIST_HEAD(dbus_out_queue);
 		free_list_element(dbus_out_queue, e);
@@ -144,12 +147,12 @@ process_method_call(dbus_action_t action, char *param, int val, bool return_data
 /* handles reply to org.freedesktop.DBus.Properties.Get method on any object*/
 static GVariant *
 handle_get_property(GDBusConnection  *connection,
-					 const gchar      *sender,
-					 const gchar      *object_path,
-					 const gchar      *interface_name,
-					 const gchar      *property_name,
-					 GError          **error,
-					 gpointer          user_data)
+		    const gchar      *sender,
+		    const gchar      *object_path,
+		    const gchar      *interface_name,
+		    const gchar      *property_name,
+		    GError          **error,
+		    gpointer          user_data)
 {
 	GVariant *ret = NULL;
 	dbus_queue_ent_t *ent;
@@ -191,13 +194,13 @@ handle_get_property(GDBusConnection  *connection,
 /* handles method_calls on any object */
 static void
 handle_method_call(GDBusConnection *connection,
-					const gchar           *sender,
-					const gchar           *object_path,
-					const gchar           *interface_name,
-					const gchar           *method_name,
-					GVariant              *parameters,
-					GDBusMethodInvocation *invocation,
-					gpointer               user_data)
+		   const gchar           *sender,
+		   const gchar           *object_path,
+		   const gchar           *interface_name,
+		   const gchar           *method_name,
+		   GVariant              *parameters,
+		   GDBusMethodInvocation *invocation,
+		   gpointer               user_data)
 {
 	if (!g_strcmp0(interface_name, DBUS_VRRP_INTERFACE)) {
 		if (!g_strcmp0(method_name, "PrintData")) {
@@ -211,7 +214,7 @@ handle_method_call(GDBusConnection *connection,
 	} else if (!g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE)) {
 		if (!g_strcmp0(method_name, "SendGarp")) {
 			GVariant *name_call =  handle_get_property(connection, sender, object_path,
-												  interface_name, "Name", NULL, NULL);
+								   interface_name, "Name", NULL, NULL);
 			gchar *name;
 			if (!name_call)
 				log_message(LOG_INFO, "Name property not found");
@@ -238,18 +241,17 @@ static const GDBusInterfaceVTable interface_vtable =
  * exports objects to the bus */
 static void
 on_bus_acquired(GDBusConnection *connection,
-				 const gchar     *name,
-				 gpointer         user_data)
+		const gchar     *name,
+		gpointer         user_data)
 {
 	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 	global_connection = connection;
 
-
 	log_message(LOG_INFO, "Acquired DBus bus %s\n", name);
 	/* register VRRP object */
 	guint vrrp = g_dbus_connection_register_object(connection, DBUS_VRRP_OBJECT,
-												 vrrp_introspection_data->interfaces[0],
-												 &interface_vtable, NULL, NULL, NULL);
+							vrrp_introspection_data->interfaces[0],
+							&interface_vtable, NULL, NULL, NULL);
 	objects = g_slist_append(objects, GUINT_TO_POINTER(vrrp));
 
 	/* for each available VRRP instance, register an object */
@@ -265,8 +267,8 @@ on_bus_acquired(GDBusConnection *connection,
 		gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), vrid, NULL);
 
 		instance = g_dbus_connection_register_object(connection, path,
-													 vrrp_instance_introspection_data->interfaces[0],
-												 	&interface_vtable, NULL, NULL, NULL);
+							     vrrp_instance_introspection_data->interfaces[0],
+							     &interface_vtable, NULL, NULL, NULL);
 		if (instance != 0)
 			objects = g_slist_append(objects, GUINT_TO_POINTER(instance));
 
@@ -278,8 +280,8 @@ on_bus_acquired(GDBusConnection *connection,
 /* run if bus name is acquired successfully */
 static void
 on_name_acquired(GDBusConnection *connection,
-				  const gchar     *name,
-				  gpointer         user_data)
+		 const gchar     *name,
+		 gpointer         user_data)
 {
 	log_message(LOG_INFO, "Acquired the name %s on the session bus\n", name);
 }
@@ -294,8 +296,8 @@ unregister_object(gpointer data, gpointer user_data)
 /* run if bus name or connection are lost */
 static void
 on_name_lost(GDBusConnection *connection,
-			  const gchar     *name,
-			  gpointer         user_data)
+	     const gchar     *name,
+	     gpointer         user_data)
 {
 	log_message(LOG_INFO, "Lost the name %s on the session bus\n", name);
 	global_connection = connection;
@@ -350,8 +352,6 @@ dbus_main(__attribute__ ((unused)) void *unused)
 		return NULL;
 	}
 	vrrp_introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, &error);
-if (!vrrp_introspection_data)
-	log_message(LOG_INFO,"g_dbus_node_info_new_for_xml error %d (domain %d) - %s", error->code, error->domain, error->message);
 	FREE(introspection_xml);
 
 	introspection_xml = read_file(DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH);
@@ -363,13 +363,13 @@ if (!vrrp_introspection_data)
 	FREE(introspection_xml);
 
 	owner_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
-							   DBUS_SERVICE_NAME,
-							   G_BUS_NAME_OWNER_FLAGS_NONE,
-							   on_bus_acquired,
-							   on_name_acquired,
-							   on_name_lost,
-							   NULL,  /* user_data */
-							   NULL); /* user_data_free_func */
+				  DBUS_SERVICE_NAME,
+				  G_BUS_NAME_OWNER_FLAGS_NONE,
+				  on_bus_acquired,
+				  on_name_acquired,
+				  on_name_lost,
+				  NULL,  /* user_data */
+				  NULL); /* user_data_free_func */
 
 	loop = g_main_loop_new(NULL, FALSE);
 	g_main_loop_run(loop);
@@ -389,19 +389,24 @@ dbus_send_state_signal(vrrp_t *vrrp)
 {
 	GError *local_error;
 	char standardized_name[sizeof vrrp->ifp->ifname];
-
-	gchar *object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
-								set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
-	GVariant *args = g_variant_new("(u)", vrrp->state);
+	gchar *object_path;
 
 	/* the interface will go through the initial state changes before
 	 * the main loop can be started and global_connection initialised */
 	if (global_connection == NULL) {
 		log_message(LOG_INFO, "Not connected to the org.keepalived.Vrrp1 bus");
-	} else
-		g_dbus_connection_emit_signal(global_connection, NULL, object_path,
-										DBUS_VRRP_INSTANCE_INTERFACE,
-										"VrrpStatusChange", args, &local_error);
+		return;
+	}
+
+	object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
+					 set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))),
+					 "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
+	GVariant *args = g_variant_new("(u)", vrrp->state);
+
+	g_dbus_connection_emit_signal(global_connection, NULL, object_path,
+				      DBUS_VRRP_INSTANCE_INTERFACE,
+				      "VrrpStatusChange", args, &local_error);
+
 	g_free(object_path);
 }
 
@@ -569,10 +574,9 @@ dbus_stop(void)
 
 	if (global_connection != NULL)
 		g_dbus_connection_emit_signal(global_connection, NULL, DBUS_VRRP_OBJECT,
-			   DBUS_VRRP_INTERFACE, "VrrpStopped", NULL, &local_error);
+					      DBUS_VRRP_INTERFACE, "VrrpStopped", NULL, &local_error);
 	g_main_loop_quit(loop);
 
 	g_dbus_node_info_unref(vrrp_introspection_data);
 	g_dbus_node_info_unref(vrrp_instance_introspection_data);
 }
-
