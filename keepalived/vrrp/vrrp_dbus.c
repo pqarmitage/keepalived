@@ -257,9 +257,11 @@ read_file(gchar* filepath)
 		fseek(f, 0, SEEK_END);
 		length = ftell(f);
 		fseek(f, 0, SEEK_SET);
-		ret = MALLOC(length);
-		if (ret)
+		ret = MALLOC(length + 1);
+		if (ret) {
 			fread(ret, 1, length, f);
+			ret[length] = '\0';
+		}
 		fclose(f);
 	}
 	return ret;
