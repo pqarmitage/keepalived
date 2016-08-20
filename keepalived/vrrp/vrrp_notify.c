@@ -29,6 +29,7 @@
 #include "vrrp_notify.h"
 #ifdef _WITH_DBUS_
 #include "vrrp_dbus.h"
+#include "global_data.h"
 #endif
 #include "memory.h"
 #include "notify.h"
@@ -191,7 +192,8 @@ notify_instance_exec(vrrp_t * vrrp, int state)
 	}
 
 #ifdef _WITH_DBUS_
-	dbus_send_state_signal(vrrp); // send signal to all subscribers
+	if (global_data->enable_dbus)
+		dbus_send_state_signal(vrrp); // send signal to all subscribers
 #endif
 
 	return ret;

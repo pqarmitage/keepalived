@@ -139,7 +139,8 @@ stop_vrrp(int status)
 	free_parent_mallocs_exit();
 
 #ifdef _WITH_DBUS_
-	dbus_stop();
+	if (global_data->enable_dbus)
+		dbus_stop();
 #endif
 
 	/*
@@ -245,7 +246,7 @@ start_vrrp(void)
 	}
 
 #ifdef _WITH_DBUS_
-	if (!reload)
+	if (!reload && global_data->enable_dbus)
 		pthread_create(&dbus_thread, NULL, &dbus_main, NULL);
 #endif
 
@@ -374,10 +375,6 @@ reload_vrrp_thread(thread_t * thread)
 	/* Reload the conf */
 #ifdef _MEM_CHECK_
 	mem_allocated = 0;
-#endif
-#ifdef _WITH_DBUS_
-// DBUS TODO - do we need to restart dbus?
-//	dbus_stop();
 #endif
 	start_vrrp();
 
