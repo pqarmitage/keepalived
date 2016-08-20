@@ -240,7 +240,8 @@ start_vrrp(void)
 
 #ifdef _WITH_DBUS_
 	if (!reload && global_data->enable_dbus)
-		dbus_start();
+		if (!dbus_start())
+			global_data->enable_dbus = false;
 #endif
 
 	/* Complete VRRP initialization */

@@ -23,6 +23,8 @@
 #ifndef VRRP_DBUS_H
 #define VRRP_DBUS_H
 
+#include <stdbool.h>
+
 /* Local includes */
 #include "vrrp.h"
 
@@ -36,7 +38,7 @@
 #define DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH  "/usr/share/dbus-1/interfaces/org.keepalived.Vrrp1.Instance.xml"
 
 void dbus_send_state_signal(vrrp_t *);
-void dbus_start(void);
+bool dbus_start(void);
 void dbus_stop(void);
 
 #endif
