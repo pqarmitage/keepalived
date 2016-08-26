@@ -57,6 +57,7 @@ typedef struct dbus_queue_ent {
 	dbus_error_t reply;
 	char str[IFNAMSIZ+1];
 	int val;
+	GVariant *args;
 } dbus_queue_ent_t;
 
 /* Global file variables */
@@ -91,7 +92,7 @@ set_valid_path(char *valid_path, const char *path)
 }
 
 static dbus_queue_ent_t *
-process_method_call(dbus_action_t action, char *param, int val, bool return_data)
+process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 {
 	dbus_queue_ent_t *ent = MALLOC(sizeof(dbus_queue_ent_t));
 	element e;
@@ -101,6 +102,17 @@ process_method_call(dbus_action_t action, char *param, int val, bool return_data
 
 	ent->action = action;
 	pthread_mutex_lock(&in_queue_lock);
+
+	char *param = NULL;
+	int val = 0;
+
+	if (args){
+		if (g_variant_is_of_type(args, G_VARIANT_TYPE("(su)")))
+			g_variant_get(args, "(su)", &param, &val);
+		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
+			g_variant_get(args, "(s)", &param);
+	}
+
 	if (param)
 		strcpy(ent->str, param);
 	ent->val = val;
@@ -172,7 +184,8 @@ handle_get_property(GDBusConnection  *connection,
 			log_message(LOG_INFO, "Property %s does not exist", property_name);
 
 		if (action != DBUS_ACTION_NONE) {
-			ent = process_method_call(action, interface, vrid, true);
+			GVariant *args = g_variant_new("(su)", interface, vrid);
+			ent = process_method_call(action, args, true);
 
 			if (ent) {
 				if (ent->reply == DBUS_SUCCESS) {
@@ -204,10 +217,10 @@ handle_method_call(GDBusConnection *connection,
 {
 	if (!g_strcmp0(interface_name, DBUS_VRRP_INTERFACE)) {
 		if (!g_strcmp0(method_name, "PrintData")) {
-			process_method_call(DBUS_PRINT_DATA, NULL, 0, false);
+			process_method_call(DBUS_PRINT_DATA, NULL, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else if (g_strcmp0(method_name, "PrintStats") == 0) {
-			process_method_call(DBUS_PRINT_STATS, NULL, 0, false);
+			process_method_call(DBUS_PRINT_STATS, NULL, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else
 			log_message(LOG_INFO, "Method %s has not been implemented yet", method_name);
@@ -215,13 +228,10 @@ handle_method_call(GDBusConnection *connection,
 		if (!g_strcmp0(method_name, "SendGarp")) {
 			GVariant *name_call =  handle_get_property(connection, sender, object_path,
 								   interface_name, "Name", NULL, NULL);
-			gchar *name;
 			if (!name_call)
 				log_message(LOG_INFO, "Name property not found");
 			else {
-				g_variant_get(name_call, "(&s)", &name);
-
-				process_method_call(DBUS_SEND_GARP, name, 0, false);
+				process_method_call(DBUS_SEND_GARP, name_call, false);
 				g_dbus_method_invocation_return_value(invocation, NULL);
 			}
 		} else
