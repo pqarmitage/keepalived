@@ -42,6 +42,8 @@ typedef enum dbus_action {
 	DBUS_ACTION_NONE,
 	DBUS_PRINT_DATA,
 	DBUS_PRINT_STATS,
+	DBUS_CREATE_INSTANCE,
+	DBUS_DESTROY_INSTANCE,
 	DBUS_SEND_GARP,
 	DBUS_GET_NAME,
 	DBUS_GET_STATUS,
@@ -50,6 +52,7 @@ typedef enum dbus_action {
 typedef enum dbus_error {
 	DBUS_SUCCESS,
 	DBUS_INTERFACE_NOT_FOUND,
+	DBUS_OBJECT_ALREADY_EXISTS,
 } dbus_error_t;
 
 typedef struct dbus_queue_ent {
@@ -91,6 +94,13 @@ set_valid_path(char *valid_path, const char *path)
 	return valid_path;
 }
 
+static gboolean
+unregister_object(gpointer key, gpointer value, gpointer user_data)
+{
+	guint object = GPOINTER_TO_UINT(value);
+	return g_dbus_connection_unregister_object(global_connection, object);
+}
+
 static dbus_queue_ent_t *
 process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 {
@@ -111,6 +121,11 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 			g_variant_get(args, "(su)", &param, &val);
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
 			g_variant_get(args, "(s)", &param);
+		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssu)"))){
+			char *iname;
+			g_variant_get(args, "(ssu)", &iname, &param, &val);
+			ent->args = g_variant_new("(s)", iname);
+		}
 	}
 
 	if (param)
@@ -144,6 +159,8 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	if (ent->reply != DBUS_SUCCESS) {
 		if (ent->reply == DBUS_INTERFACE_NOT_FOUND)
 			log_message(LOG_INFO, "Unable to find DBus requested interface %s/%d", param, val);
+		else if (ent-> reply == DBUS_OBJECT_ALREADY_EXISTS)
+			log_message(LOG_INFO, "Unable to create DBus requested object with interface %s/%d", param, val);
 		else
 			log_message(LOG_INFO, "Unknown DBus reply %d", ent->reply);
 	}
@@ -222,6 +239,12 @@ handle_method_call(GDBusConnection *connection,
 		} else if (g_strcmp0(method_name, "PrintStats") == 0) {
 			process_method_call(DBUS_PRINT_STATS, NULL, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);
+		} else if (g_strcmp0(method_name, "CreateInstance") == 0) {
+			process_method_call(DBUS_CREATE_INSTANCE, parameters, false);
+			g_dbus_method_invocation_return_value(invocation, NULL);
+		} else if (g_strcmp0(method_name, "DestroyInstance") == 0) {
+			process_method_call(DBUS_DESTROY_INSTANCE, parameters, false);
+			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else
 			log_message(LOG_INFO, "Method %s has not been implemented yet", method_name);
 	} else if (!g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE)) {
@@ -294,13 +317,6 @@ on_name_acquired(GDBusConnection *connection,
 		 gpointer         user_data)
 {
 	log_message(LOG_INFO, "Acquired the name %s on the session bus\n", name);
-}
-
-static gboolean
-unregister_object(gpointer key, gpointer value, gpointer user_data)
-{
-	guint object = GPOINTER_TO_UINT(value);
-	return g_dbus_connection_unregister_object(global_connection, object);
 }
 
 /* run if bus name or connection are lost */
@@ -472,6 +488,41 @@ handle_dbus_msg(thread_t *thread)
 		else if (ent->action == DBUS_PRINT_STATS) {
 			log_message(LOG_INFO, "Printing VRRP stats on DBus request");
 			vrrp_print_stats();
+		}
+		else if (ent->action == DBUS_CREATE_INSTANCE) {
+			gchar *name;
+			g_variant_get(ent->args, "(s)", &name);
+
+			if (g_hash_table_lookup(objects, name)){
+				log_message(LOG_INFO, "An object for instance %s already exists", name);
+				ent->reply = DBUS_OBJECT_ALREADY_EXISTS;	
+			} else {
+				gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, 
+								set_valid_path(standardized_name, ent->str),
+								"/", g_strdup_printf("%d", ent->val), NULL);
+
+				guint instance = g_dbus_connection_register_object(global_connection, path,
+									vrrp_instance_introspection_data->interfaces[0],
+									&interface_vtable, NULL, NULL, NULL);
+
+				if (instance != 0){
+					g_hash_table_insert(objects, name, GUINT_TO_POINTER(instance));
+					log_message(LOG_INFO, "Added DBus object for instance %s on path %s", name, path);
+				}
+				g_free(path);
+			}
+		}
+		else if (ent->action == DBUS_DESTROY_INSTANCE) {
+			gchar *key = ent->str;
+			guint value = g_hash_table_lookup(objects, key);
+			if (value){
+				unregister_object(key, value, NULL);
+				g_hash_table_remove(objects, ent->str);
+				log_message(LOG_INFO, "Deleted DBus object for instance %s", ent->str);
+			} else {
+				log_message(LOG_INFO, "DBus object not found for instance %s", ent->str);
+			}
+
 		}
 		else if (ent->action == DBUS_SEND_GARP) {
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
