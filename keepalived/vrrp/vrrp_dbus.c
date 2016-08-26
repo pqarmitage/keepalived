@@ -63,7 +63,7 @@ typedef struct dbus_queue_ent {
 static GDBusNodeInfo *vrrp_introspection_data = NULL;
 static GDBusNodeInfo *vrrp_instance_introspection_data = NULL;
 static GDBusConnection *global_connection;
-static GSList *objects = NULL;
+static GHashTable *objects;
 static GMainLoop *loop;
 
 /* Queues between main vrrp thread and dbus thread */
@@ -250,10 +250,10 @@ on_bus_acquired(GDBusConnection *connection,
 	log_message(LOG_INFO, "Acquired DBus bus %s\n", name);
 	/* register VRRP object */
 	guint vrrp = g_dbus_connection_register_object(connection, DBUS_VRRP_OBJECT,
-							vrrp_introspection_data->interfaces[0],
-							&interface_vtable, NULL, NULL, NULL);
-	objects = g_slist_append(objects, GUINT_TO_POINTER(vrrp));
-
+												 vrrp_introspection_data->interfaces[0],
+												 &interface_vtable, NULL, NULL, NULL);
+	g_hash_table_insert(objects, "__Vrrp__", GUINT_TO_POINTER(vrrp));
+	
 	/* for each available VRRP instance, register an object */
 	list l = vrrp_data->vrrp;
 	if (LIST_ISEMPTY(l))
@@ -270,7 +270,7 @@ on_bus_acquired(GDBusConnection *connection,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
 		if (instance != 0)
-			objects = g_slist_append(objects, GUINT_TO_POINTER(instance));
+			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
 
 		g_free(path);
 		g_free(vrid);
@@ -286,11 +286,11 @@ on_name_acquired(GDBusConnection *connection,
 	log_message(LOG_INFO, "Acquired the name %s on the session bus\n", name);
 }
 
-static void
-unregister_object(gpointer data, gpointer user_data)
+static gboolean
+unregister_object(gpointer key, gpointer value, gpointer user_data)
 {
-	guint *object = (guint *)data;
-	g_dbus_connection_unregister_object(global_connection, *object);
+	guint object = GPOINTER_TO_UINT(value);
+	return g_dbus_connection_unregister_object(global_connection, object);
 }
 
 /* run if bus name or connection are lost */
@@ -301,7 +301,7 @@ on_name_lost(GDBusConnection *connection,
 {
 	log_message(LOG_INFO, "Lost the name %s on the session bus\n", name);
 	global_connection = connection;
-	g_slist_foreach(objects, unregister_object, NULL);
+	g_hash_table_foreach_remove(objects, unregister_object, NULL);
 	objects = NULL;
 	global_connection = NULL;
 }
@@ -333,6 +333,8 @@ dbus_main(__attribute__ ((unused)) void *unused)
 {
 	gchar *introspection_xml;
 	guint owner_id;
+
+	objects = g_hash_table_new(g_str_hash, g_str_equal);
 
 	/* DBus service org.keepalived.Vrrp1 exposes two interfaces, Vrrp and Instance.
 	 * Vrrp is implemented by a single Vrrp object for general purposes, such as printing
