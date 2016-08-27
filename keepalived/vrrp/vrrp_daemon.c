@@ -127,16 +127,16 @@ stop_vrrp(int status)
 	gratuitous_arp_close();
 	ndisc_close();
 
+#ifdef _WITH_DBUS_
+	if (global_data->enable_dbus)
+		dbus_stop();
+#endif
+
 	free_global_data(global_data);
 	free_vrrp_data(vrrp_data);
 	free_vrrp_buffer();
 	free_interface_queue();
 	free_parent_mallocs_exit();
-
-#ifdef _WITH_DBUS_
-	if (global_data->enable_dbus)
-		dbus_stop();
-#endif
 
 	/*
 	 * Reached when terminate signal catched.
