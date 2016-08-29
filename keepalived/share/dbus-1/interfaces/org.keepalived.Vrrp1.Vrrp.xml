@@ -10,6 +10,7 @@
 		<arg name="iname" type="s" direction="in" />
 		<arg name="interface" type="s" direction="in" />
 		<arg name="group" type="u" direction="in" />
+		<arg name="family" type="u" direction="in" />
 	</method>
 	<method name='DestroyInstance'>
 		<arg name="iname" type="s" direction="in" />

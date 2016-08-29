@@ -111,10 +111,10 @@ dbus_object_create_path_vrrp(void)
 	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
 
 #ifdef HAVE_DECL_CLONE_NEWNET
-	if(network_namespace != NULL)
+	if (network_namespace != NULL)
 		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
 #endif
-	if(instance_name)
+	if (instance_name)
 		object_path = g_strconcat(object_path, "/", instance_name, NULL);
 
 	object_path = g_strconcat(object_path, "/Vrrp", NULL);
@@ -122,20 +122,26 @@ dbus_object_create_path_vrrp(void)
 }
 
 static gchar *
-dbus_object_create_path_instance(gchar *interface, gchar *group)
+dbus_object_create_path_instance(gchar *interface, gchar *group, sa_family_t family)
 {
 	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
 	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 
 #ifdef HAVE_DECL_CLONE_NEWNET
-	if(network_namespace != NULL)
+	if (network_namespace != NULL)
 		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
 #endif
-	if(instance_name)
+	if (instance_name)
 		object_path = g_strconcat(object_path, "/", instance_name, NULL);
 
 	object_path = g_strconcat(object_path, "/Instance/",
 				set_valid_path(standardized_name, interface), "/", group,  NULL);
+	if (family == AF_INET)
+		object_path = g_strconcat(object_path, "/IPv4", NULL);
+	else if (family == AF_INET6)
+		object_path = g_strconcat(object_path, "/IPv6", NULL);
+	else
+		object_path = g_strconcat(object_path, "/None", NULL);
 	return object_path;
 }
 
@@ -159,10 +165,11 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 			g_variant_get(args, "(su)", &param, &val);
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
 			g_variant_get(args, "(s)", &param);
-		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssu)"))){
+		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))){
 			char *iname;
-			g_variant_get(args, "(ssu)", &iname, &param, &val);
-			ent->args = g_variant_new("(s)", iname);
+			int family;
+			g_variant_get(args, "(ssuu)", &iname, &param, &val, &family);
+			ent->args = g_variant_new("(su)", iname, family);
 		}
 	}
 
@@ -234,10 +241,11 @@ handle_get_property(GDBusConnection  *connection,
 		if(instance_name)
 			path_length++;
 
-		/* object_path will have interface and group as the two last levels */
+		/* object_path will have interface and group as 
+		 * the third to last and the second to last levels */
 		gchar **dirs = g_strsplit(object_path, "/", path_length);
-		gchar *interface = dirs[path_length-2];
-		unsigned vrid = atoi(dirs[path_length-1]);
+		gchar *interface = dirs[path_length-3];
+		unsigned vrid = atoi(dirs[path_length-2]);
 		int action = DBUS_ACTION_NONE;
 
 		if (!g_strcmp0(property_name, "Name"))
@@ -345,7 +353,7 @@ on_bus_acquired(GDBusConnection *connection,
 		vrrp_t * vrrp = ELEMENT_DATA(e);
 
 		gchar *path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
-						g_strdup_printf("%d",vrrp->vrid));
+						g_strdup_printf("%d",vrrp->vrid), vrrp->family);
 		instance = g_dbus_connection_register_object(connection, path,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
@@ -470,7 +478,7 @@ dbus_send_state_signal(vrrp_t *vrrp)
 	}
 
 	gchar *object_path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
-					g_strdup_printf("%d",vrrp->vrid));
+					g_strdup_printf("%d",vrrp->vrid), vrrp->family);
 
 	GVariant *args = g_variant_new("(u)", vrrp->state);
 	g_dbus_connection_emit_signal(global_connection, NULL, object_path,
@@ -533,14 +541,21 @@ handle_dbus_msg(thread_t *thread)
 		}
 		else if (ent->action == DBUS_CREATE_INSTANCE) {
 			gchar *name;
-			g_variant_get(ent->args, "(s)", &name);
+			int fam;
+			sa_family_t family;
+			g_variant_get(ent->args, "(su)", &name, &fam);
 
 			if (g_hash_table_lookup(objects, name)){
 				log_message(LOG_INFO, "An object for instance %s already exists", name);
 				ent->reply = DBUS_OBJECT_ALREADY_EXISTS;	
 			} else {
+				if (fam == 4)
+					family = AF_INET;
+				else if (fam == 6)
+					family = AF_INET6;
+
 				gchar *path = dbus_object_create_path_instance(ent->str,
-								g_strdup_printf("%d", ent->val));
+								g_strdup_printf("%d", ent->val), family);
 
 				guint instance = g_dbus_connection_register_object(global_connection, path,
 									vrrp_instance_introspection_data->interfaces[0],
