@@ -31,9 +31,9 @@
 /* Defines */
 #define DBUS_SERVICE_NAME                       "org.keepalived.Vrrp1"
 #define DBUS_VRRP_INTERFACE                     "org.keepalived.Vrrp1.Vrrp"
-#define DBUS_VRRP_OBJECT                        "/org/keepalived/Vrrp1/Vrrp"
+#define DBUS_VRRP_OBJECT_ROOT                   "/org/keepalived/Vrrp1"
+#define DBUS_VRRP_INSTANCE_PATH_DEFAULT_LENGTH  7
 #define DBUS_VRRP_INSTANCE_INTERFACE            "org.keepalived.Vrrp1.Instance"
-#define DBUS_VRRP_INSTANCE_OBJECT_ROOT          "/org/keepalived/Vrrp1/Instance/"
 #define DBUS_VRRP_INTERFACE_FILE_PATH           "/usr/share/dbus-1/interfaces/org.keepalived.Vrrp1.Vrrp.xml"
 #define DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH  "/usr/share/dbus-1/interfaces/org.keepalived.Vrrp1.Instance.xml"
 

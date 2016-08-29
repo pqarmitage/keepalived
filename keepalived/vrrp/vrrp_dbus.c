@@ -32,11 +32,15 @@
 #include "vrrp_data.h"
 #include "vrrp_if.h"
 #include "vrrp_print.h"
+#include "main.h"
 #include "memory.h"
 #include "logger.h"
 #include "timer.h"
 #include "scheduler.h"
 #include "list.h"
+#if HAVE_DECL_CLONE_NEWNET
+#include "namespaces.h"
+#endif
 
 typedef enum dbus_action {
 	DBUS_ACTION_NONE,
@@ -99,6 +103,40 @@ unregister_object(gpointer key, gpointer value, gpointer user_data)
 {
 	guint object = GPOINTER_TO_UINT(value);
 	return g_dbus_connection_unregister_object(global_connection, object);
+}
+
+static gchar *
+dbus_object_create_path_vrrp(void)
+{
+	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
+
+#ifdef HAVE_DECL_CLONE_NEWNET
+	if(network_namespace != NULL)
+		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
+#endif
+	if(instance_name)
+		object_path = g_strconcat(object_path, "/", instance_name, NULL);
+
+	object_path = g_strconcat(object_path, "/Vrrp", NULL);
+	return object_path;
+}
+
+static gchar *
+dbus_object_create_path_instance(gchar *interface, gchar *group)
+{
+	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
+	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
+
+#ifdef HAVE_DECL_CLONE_NEWNET
+	if(network_namespace != NULL)
+		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
+#endif
+	if(instance_name)
+		object_path = g_strconcat(object_path, "/", instance_name, NULL);
+
+	object_path = g_strconcat(object_path, "/Instance/",
+				set_valid_path(standardized_name, interface), "/", group,  NULL);
+	return object_path;
 }
 
 static dbus_queue_ent_t *
@@ -187,10 +225,19 @@ handle_get_property(GDBusConnection  *connection,
 	dbus_queue_ent_t *ent;
 
 	if (!g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE)) {
-		/* object_path will be in the form /org/keepalived/Vrrp1/Instance/INTERFACE/GROUP */
-		gchar **dirs = g_strsplit(object_path, "/", 7);
-		gchar *interface = dirs[5];
-		unsigned vrid = atoi(dirs[6]);
+
+		int path_length = DBUS_VRRP_INSTANCE_PATH_DEFAULT_LENGTH;
+#ifdef HAVE_DECL_CLONE_NEWNET
+		if(network_namespace != NULL)
+			path_length++;
+#endif
+		if(instance_name)
+			path_length++;
+
+		/* object_path will have interface and group as the two last levels */
+		gchar **dirs = g_strsplit(object_path, "/", path_length);
+		gchar *interface = dirs[path_length-2];
+		unsigned vrid = atoi(dirs[path_length-1]);
 		int action = DBUS_ACTION_NONE;
 
 		if (!g_strcmp0(property_name, "Name"))
@@ -277,12 +324,12 @@ on_bus_acquired(GDBusConnection *connection,
 		const gchar     *name,
 		gpointer         user_data)
 {
-	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 	global_connection = connection;
 
 	log_message(LOG_INFO, "Acquired DBus bus %s\n", name);
+
 	/* register VRRP object */
-	guint vrrp = g_dbus_connection_register_object(connection, DBUS_VRRP_OBJECT,
+	guint vrrp = g_dbus_connection_register_object(connection, dbus_object_create_path_vrrp(),
 												 vrrp_introspection_data->interfaces[0],
 												 &interface_vtable, NULL, NULL, NULL);
 	g_hash_table_insert(objects, "__Vrrp__", GUINT_TO_POINTER(vrrp));
@@ -296,9 +343,9 @@ on_bus_acquired(GDBusConnection *connection,
 	guint instance;
 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 		vrrp_t * vrrp = ELEMENT_DATA(e);
-		gchar *vrid = g_strdup_printf("/%d", vrrp->vrid);
-		gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), vrid, NULL);
 
+		gchar *path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
+						g_strdup_printf("%d",vrrp->vrid));
 		instance = g_dbus_connection_register_object(connection, path,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
@@ -306,7 +353,6 @@ on_bus_acquired(GDBusConnection *connection,
 			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
 
 		g_free(path);
-		g_free(vrid);
 	}
 }
 
@@ -363,8 +409,8 @@ dbus_main(__attribute__ ((unused)) void *unused)
 	objects = g_hash_table_new(g_str_hash, g_str_equal);
 
 	/* DBus service org.keepalived.Vrrp1 exposes two interfaces, Vrrp and Instance.
-	 * Vrrp is implemented by a single Vrrp object for general purposes, such as printing
-	 * data or signaling that the Vrrp process has been stopped.
+	 * Vrrp is implemented by a single VRRP object for general purposes, such as printing
+	 * data or signaling that the VRRP process has been stopped.
 	 * Instance is implemented by an Instance object for every VRRP Instance in vrrp_data.
 	 * It exposes instance specific methods and properties.
 	 */
@@ -416,21 +462,17 @@ void
 dbus_send_state_signal(vrrp_t *vrrp)
 {
 	GError *local_error;
-	char standardized_name[sizeof vrrp->ifp->ifname];
-	gchar *object_path;
-
 	/* the interface will go through the initial state changes before
 	 * the main loop can be started and global_connection initialised */
 	if (global_connection == NULL) {
-		log_message(LOG_INFO, "Not connected to the org.keepalived.Vrrp1 bus");
+		log_message(LOG_INFO, "Not connected to the %s bus", DBUS_SERVICE_NAME);
 		return;
 	}
 
-	object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
-					 set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))),
-					 "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
-	GVariant *args = g_variant_new("(u)", vrrp->state);
+	gchar *object_path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
+					g_strdup_printf("%d",vrrp->vrid));
 
+	GVariant *args = g_variant_new("(u)", vrrp->state);
 	g_dbus_connection_emit_signal(global_connection, NULL, object_path,
 				      DBUS_VRRP_INSTANCE_INTERFACE,
 				      "VrrpStatusChange", args, &local_error);
@@ -497,9 +539,8 @@ handle_dbus_msg(thread_t *thread)
 				log_message(LOG_INFO, "An object for instance %s already exists", name);
 				ent->reply = DBUS_OBJECT_ALREADY_EXISTS;	
 			} else {
-				gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, 
-								set_valid_path(standardized_name, ent->str),
-								"/", g_strdup_printf("%d", ent->val), NULL);
+				gchar *path = dbus_object_create_path_instance(ent->str,
+								g_strdup_printf("%d", ent->val));
 
 				guint instance = g_dbus_connection_register_object(global_connection, path,
 									vrrp_instance_introspection_data->interfaces[0],
@@ -636,7 +677,7 @@ dbus_stop(void)
 	pthread_mutex_unlock(&out_queue_lock);
 
 	if (global_connection != NULL)
-		g_dbus_connection_emit_signal(global_connection, NULL, DBUS_VRRP_OBJECT,
+		g_dbus_connection_emit_signal(global_connection, NULL, dbus_object_create_path_vrrp(),
 					      DBUS_VRRP_INTERFACE, "VrrpStopped", NULL, &local_error);
 	g_main_loop_quit(loop);
 
