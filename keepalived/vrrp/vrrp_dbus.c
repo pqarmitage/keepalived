@@ -488,6 +488,19 @@ dbus_send_state_signal(vrrp_t *vrrp)
 	g_free(object_path);
 }
 
+void dbus_remove_object(vrrp_t *vrrp)
+{
+	GDBusMethodInvocation *invocation;
+	GVariant *arg = g_variant_new("(s)", vrrp->iname);
+
+	handle_method_call(global_connection,
+						DBUS_SERVICE_NAME,
+						dbus_object_create_path_vrrp(),
+						DBUS_VRRP_INTERFACE,
+						"DestroyInstance",
+						arg, invocation, NULL);
+}
+
 static void
 return_dbus_msg(dbus_queue_ent_t *ent)
 {
