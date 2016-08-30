@@ -221,6 +221,9 @@ start_vrrp(void)
 #endif
 
 	if (reload) {
+#ifdef _WITH_DBUS_
+		find_new_vrrp(dbus_create_object);
+#endif
 		clear_diff_saddresses();
 #ifdef _HAVE_FIB_ROUTING_
 		clear_diff_srules();
