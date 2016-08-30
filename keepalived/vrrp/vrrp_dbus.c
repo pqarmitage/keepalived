@@ -597,7 +597,7 @@ handle_dbus_msg(thread_t *thread)
 		}
 		else if (ent->action == DBUS_DESTROY_INSTANCE) {
 			gchar *key = ent->str;
-			guint value = g_hash_table_lookup(objects, key);
+			gpointer value = g_hash_table_lookup(objects, key);
 			if (value){
 				unregister_object(key, value, NULL);
 				g_hash_table_remove(objects, ent->str);
