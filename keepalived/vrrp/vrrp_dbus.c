@@ -434,6 +434,10 @@ dbus_main(__attribute__ ((unused)) void *unused)
 		return NULL;
 	}
 	vrrp_introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, &error);
+	if (!vrrp_introspection_data) {
+		log_message(LOG_INFO, "%s", error->message);
+		return NULL;
+	}
 	FREE(introspection_xml);
 
 	introspection_xml = read_file(DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH);
@@ -442,6 +446,10 @@ dbus_main(__attribute__ ((unused)) void *unused)
 		return NULL;
 	}
 	vrrp_instance_introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, &error);
+	if (!vrrp_instance_introspection_data) {
+		log_message(LOG_INFO, "%s", error->message);
+		return NULL;
+	}
 	FREE(introspection_xml);
 
 	owner_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
