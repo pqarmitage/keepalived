@@ -32,16 +32,22 @@
 #include "vrrp_data.h"
 #include "vrrp_if.h"
 #include "vrrp_print.h"
+#include "main.h"
 #include "memory.h"
 #include "logger.h"
 #include "timer.h"
 #include "scheduler.h"
 #include "list.h"
+#if HAVE_DECL_CLONE_NEWNET
+#include "namespaces.h"
+#endif
 
 typedef enum dbus_action {
 	DBUS_ACTION_NONE,
 	DBUS_PRINT_DATA,
 	DBUS_PRINT_STATS,
+	DBUS_CREATE_INSTANCE,
+	DBUS_DESTROY_INSTANCE,
 	DBUS_SEND_GARP,
 	DBUS_GET_NAME,
 	DBUS_GET_STATUS,
@@ -50,6 +56,7 @@ typedef enum dbus_action {
 typedef enum dbus_error {
 	DBUS_SUCCESS,
 	DBUS_INTERFACE_NOT_FOUND,
+	DBUS_OBJECT_ALREADY_EXISTS,
 } dbus_error_t;
 
 typedef struct dbus_queue_ent {
@@ -57,13 +64,14 @@ typedef struct dbus_queue_ent {
 	dbus_error_t reply;
 	char str[IFNAMSIZ+1];
 	int val;
+	GVariant *args;
 } dbus_queue_ent_t;
 
 /* Global file variables */
 static GDBusNodeInfo *vrrp_introspection_data = NULL;
 static GDBusNodeInfo *vrrp_instance_introspection_data = NULL;
 static GDBusConnection *global_connection;
-static GSList *objects = NULL;
+static GHashTable *objects;
 static GMainLoop *loop;
 
 /* Queues between main vrrp thread and dbus thread */
@@ -90,8 +98,55 @@ set_valid_path(char *valid_path, const char *path)
 	return valid_path;
 }
 
+static gboolean
+unregister_object(gpointer key, gpointer value, gpointer user_data)
+{
+	guint object = GPOINTER_TO_UINT(value);
+	return g_dbus_connection_unregister_object(global_connection, object);
+}
+
+static gchar *
+dbus_object_create_path_vrrp(void)
+{
+	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
+
+#ifdef HAVE_DECL_CLONE_NEWNET
+	if (network_namespace != NULL)
+		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
+#endif
+	if (instance_name)
+		object_path = g_strconcat(object_path, "/", instance_name, NULL);
+
+	object_path = g_strconcat(object_path, "/Vrrp", NULL);
+	return object_path;
+}
+
+static gchar *
+dbus_object_create_path_instance(gchar *interface, gchar *group, sa_family_t family)
+{
+	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
+	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
+
+#ifdef HAVE_DECL_CLONE_NEWNET
+	if (network_namespace != NULL)
+		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
+#endif
+	if (instance_name)
+		object_path = g_strconcat(object_path, "/", instance_name, NULL);
+
+	object_path = g_strconcat(object_path, "/Instance/",
+				set_valid_path(standardized_name, interface), "/", group,  NULL);
+	if (family == AF_INET)
+		object_path = g_strconcat(object_path, "/IPv4", NULL);
+	else if (family == AF_INET6)
+		object_path = g_strconcat(object_path, "/IPv6", NULL);
+	else
+		object_path = g_strconcat(object_path, "/None", NULL);
+	return object_path;
+}
+
 static dbus_queue_ent_t *
-process_method_call(dbus_action_t action, char *param, int val, bool return_data)
+process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 {
 	dbus_queue_ent_t *ent = MALLOC(sizeof(dbus_queue_ent_t));
 	element e;
@@ -101,6 +156,23 @@ process_method_call(dbus_action_t action, char *param, int val, bool return_data
 
 	ent->action = action;
 	pthread_mutex_lock(&in_queue_lock);
+
+	char *param = NULL;
+	int val = 0;
+
+	if (args){
+		if (g_variant_is_of_type(args, G_VARIANT_TYPE("(su)")))
+			g_variant_get(args, "(su)", &param, &val);
+		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
+			g_variant_get(args, "(s)", &param);
+		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))){
+			char *iname;
+			int family;
+			g_variant_get(args, "(ssuu)", &iname, &param, &val, &family);
+			ent->args = g_variant_new("(su)", iname, family);
+		}
+	}
+
 	if (param)
 		strcpy(ent->str, param);
 	ent->val = val;
@@ -132,6 +204,8 @@ process_method_call(dbus_action_t action, char *param, int val, bool return_data
 	if (ent->reply != DBUS_SUCCESS) {
 		if (ent->reply == DBUS_INTERFACE_NOT_FOUND)
 			log_message(LOG_INFO, "Unable to find DBus requested interface %s/%d", param, val);
+		else if (ent-> reply == DBUS_OBJECT_ALREADY_EXISTS)
+			log_message(LOG_INFO, "Unable to create DBus requested object with interface %s/%d", param, val);
 		else
 			log_message(LOG_INFO, "Unknown DBus reply %d", ent->reply);
 	}
@@ -158,10 +232,20 @@ handle_get_property(GDBusConnection  *connection,
 	dbus_queue_ent_t *ent;
 
 	if (!g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE)) {
-		/* object_path will be in the form /org/keepalived/Vrrp1/Instance/INTERFACE/GROUP */
-		gchar **dirs = g_strsplit(object_path, "/", 7);
-		gchar *interface = dirs[5];
-		unsigned vrid = atoi(dirs[6]);
+
+		int path_length = DBUS_VRRP_INSTANCE_PATH_DEFAULT_LENGTH;
+#ifdef HAVE_DECL_CLONE_NEWNET
+		if(network_namespace != NULL)
+			path_length++;
+#endif
+		if(instance_name)
+			path_length++;
+
+		/* object_path will have interface and group as 
+		 * the third to last and the second to last levels */
+		gchar **dirs = g_strsplit(object_path, "/", path_length);
+		gchar *interface = dirs[path_length-3];
+		unsigned vrid = atoi(dirs[path_length-2]);
 		int action = DBUS_ACTION_NONE;
 
 		if (!g_strcmp0(property_name, "Name"))
@@ -172,7 +256,8 @@ handle_get_property(GDBusConnection  *connection,
 			log_message(LOG_INFO, "Property %s does not exist", property_name);
 
 		if (action != DBUS_ACTION_NONE) {
-			ent = process_method_call(action, interface, vrid, true);
+			GVariant *args = g_variant_new("(su)", interface, vrid);
+			ent = process_method_call(action, args, true);
 
 			if (ent) {
 				if (ent->reply == DBUS_SUCCESS) {
@@ -204,10 +289,16 @@ handle_method_call(GDBusConnection *connection,
 {
 	if (!g_strcmp0(interface_name, DBUS_VRRP_INTERFACE)) {
 		if (!g_strcmp0(method_name, "PrintData")) {
-			process_method_call(DBUS_PRINT_DATA, NULL, 0, false);
+			process_method_call(DBUS_PRINT_DATA, NULL, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else if (g_strcmp0(method_name, "PrintStats") == 0) {
-			process_method_call(DBUS_PRINT_STATS, NULL, 0, false);
+			process_method_call(DBUS_PRINT_STATS, NULL, false);
+			g_dbus_method_invocation_return_value(invocation, NULL);
+		} else if (g_strcmp0(method_name, "CreateInstance") == 0) {
+			process_method_call(DBUS_CREATE_INSTANCE, parameters, false);
+			g_dbus_method_invocation_return_value(invocation, NULL);
+		} else if (g_strcmp0(method_name, "DestroyInstance") == 0) {
+			process_method_call(DBUS_DESTROY_INSTANCE, parameters, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else
 			log_message(LOG_INFO, "Method %s has not been implemented yet", method_name);
@@ -215,13 +306,10 @@ handle_method_call(GDBusConnection *connection,
 		if (!g_strcmp0(method_name, "SendGarp")) {
 			GVariant *name_call =  handle_get_property(connection, sender, object_path,
 								   interface_name, "Name", NULL, NULL);
-			gchar *name;
 			if (!name_call)
 				log_message(LOG_INFO, "Name property not found");
 			else {
-				g_variant_get(name_call, "(&s)", &name);
-
-				process_method_call(DBUS_SEND_GARP, name, 0, false);
+				process_method_call(DBUS_SEND_GARP, name_call, false);
 				g_dbus_method_invocation_return_value(invocation, NULL);
 			}
 		} else
@@ -244,16 +332,16 @@ on_bus_acquired(GDBusConnection *connection,
 		const gchar     *name,
 		gpointer         user_data)
 {
-	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 	global_connection = connection;
 
 	log_message(LOG_INFO, "Acquired DBus bus %s\n", name);
-	/* register VRRP object */
-	guint vrrp = g_dbus_connection_register_object(connection, DBUS_VRRP_OBJECT,
-							vrrp_introspection_data->interfaces[0],
-							&interface_vtable, NULL, NULL, NULL);
-	objects = g_slist_append(objects, GUINT_TO_POINTER(vrrp));
 
+	/* register VRRP object */
+	guint vrrp = g_dbus_connection_register_object(connection, dbus_object_create_path_vrrp(),
+												 vrrp_introspection_data->interfaces[0],
+												 &interface_vtable, NULL, NULL, NULL);
+	g_hash_table_insert(objects, "__Vrrp__", GUINT_TO_POINTER(vrrp));
+	
 	/* for each available VRRP instance, register an object */
 	list l = vrrp_data->vrrp;
 	if (LIST_ISEMPTY(l))
@@ -263,17 +351,16 @@ on_bus_acquired(GDBusConnection *connection,
 	guint instance;
 	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 		vrrp_t * vrrp = ELEMENT_DATA(e);
-		gchar *vrid = g_strdup_printf("/%d", vrrp->vrid);
-		gchar *path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT, set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))), vrid, NULL);
 
+		gchar *path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
+						g_strdup_printf("%d",vrrp->vrid), vrrp->family);
 		instance = g_dbus_connection_register_object(connection, path,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
 		if (instance != 0)
-			objects = g_slist_append(objects, GUINT_TO_POINTER(instance));
+			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
 
 		g_free(path);
-		g_free(vrid);
 	}
 }
 
@@ -286,13 +373,6 @@ on_name_acquired(GDBusConnection *connection,
 	log_message(LOG_INFO, "Acquired the name %s on the session bus\n", name);
 }
 
-static void
-unregister_object(gpointer data, gpointer user_data)
-{
-	guint *object = (guint *)data;
-	g_dbus_connection_unregister_object(global_connection, *object);
-}
-
 /* run if bus name or connection are lost */
 static void
 on_name_lost(GDBusConnection *connection,
@@ -301,7 +381,7 @@ on_name_lost(GDBusConnection *connection,
 {
 	log_message(LOG_INFO, "Lost the name %s on the session bus\n", name);
 	global_connection = connection;
-	g_slist_foreach(objects, unregister_object, NULL);
+	g_hash_table_foreach_remove(objects, unregister_object, NULL);
 	objects = NULL;
 	global_connection = NULL;
 }
@@ -334,9 +414,11 @@ dbus_main(__attribute__ ((unused)) void *unused)
 	gchar *introspection_xml;
 	guint owner_id;
 
+	objects = g_hash_table_new(g_str_hash, g_str_equal);
+
 	/* DBus service org.keepalived.Vrrp1 exposes two interfaces, Vrrp and Instance.
-	 * Vrrp is implemented by a single Vrrp object for general purposes, such as printing
-	 * data or signaling that the Vrrp process has been stopped.
+	 * Vrrp is implemented by a single VRRP object for general purposes, such as printing
+	 * data or signaling that the VRRP process has been stopped.
 	 * Instance is implemented by an Instance object for every VRRP Instance in vrrp_data.
 	 * It exposes instance specific methods and properties.
 	 */
@@ -352,6 +434,10 @@ dbus_main(__attribute__ ((unused)) void *unused)
 		return NULL;
 	}
 	vrrp_introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, &error);
+	if (!vrrp_introspection_data) {
+		log_message(LOG_INFO, "%s", error->message);
+		return NULL;
+	}
 	FREE(introspection_xml);
 
 	introspection_xml = read_file(DBUS_VRRP_INSTANCE_INTERFACE_FILE_PATH);
@@ -360,6 +446,10 @@ dbus_main(__attribute__ ((unused)) void *unused)
 		return NULL;
 	}
 	vrrp_instance_introspection_data = g_dbus_node_info_new_for_xml(introspection_xml, &error);
+	if (!vrrp_instance_introspection_data) {
+		log_message(LOG_INFO, "%s", error->message);
+		return NULL;
+	}
 	FREE(introspection_xml);
 
 	owner_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
@@ -388,26 +478,49 @@ void
 dbus_send_state_signal(vrrp_t *vrrp)
 {
 	GError *local_error;
-	char standardized_name[sizeof vrrp->ifp->ifname];
-	gchar *object_path;
-
 	/* the interface will go through the initial state changes before
 	 * the main loop can be started and global_connection initialised */
 	if (global_connection == NULL) {
-		log_message(LOG_INFO, "Not connected to the org.keepalived.Vrrp1 bus");
+		log_message(LOG_INFO, "Not connected to the %s bus", DBUS_SERVICE_NAME);
 		return;
 	}
 
-	object_path = g_strconcat(DBUS_VRRP_INSTANCE_OBJECT_ROOT,
-					 set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp))),
-					 "/", g_strdup_printf("%d", vrrp->vrid),  NULL);
-	GVariant *args = g_variant_new("(u)", vrrp->state);
+	gchar *object_path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
+					g_strdup_printf("%d",vrrp->vrid), vrrp->family);
 
+	GVariant *args = g_variant_new("(u)", vrrp->state);
 	g_dbus_connection_emit_signal(global_connection, NULL, object_path,
 				      DBUS_VRRP_INSTANCE_INTERFACE,
 				      "VrrpStatusChange", args, &local_error);
 
 	g_free(object_path);
+}
+
+void
+dbus_create_object(vrrp_t *vrrp)
+{
+	if (g_hash_table_lookup(objects, vrrp->iname)) {
+		log_message(LOG_INFO, "An object for instance %s already exists", vrrp->iname);
+	} else {
+		gchar *object_path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
+						g_strdup_printf("%d", vrrp->vrid), vrrp->family);
+
+		guint instance = g_dbus_connection_register_object(global_connection, object_path,
+							vrrp_instance_introspection_data->interfaces[0],
+							&interface_vtable, NULL, NULL, NULL);
+
+		if (instance != 0){
+			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
+			log_message(LOG_INFO, "Added DBus object for instance %s on path %s", vrrp->iname, object_path);
+		}
+		g_free(object_path);
+	}
+}
+
+void
+dbus_remove_object(vrrp_t *vrrp)
+{
+	unregister_object(vrrp->iname, g_hash_table_lookup(objects, vrrp->iname), NULL);
 }
 
 static void
@@ -460,6 +573,47 @@ handle_dbus_msg(thread_t *thread)
 		else if (ent->action == DBUS_PRINT_STATS) {
 			log_message(LOG_INFO, "Printing VRRP stats on DBus request");
 			vrrp_print_stats();
+		}
+		else if (ent->action == DBUS_CREATE_INSTANCE) {
+			gchar *name;
+			int fam;
+			sa_family_t family;
+			g_variant_get(ent->args, "(su)", &name, &fam);
+
+			if (g_hash_table_lookup(objects, name)) {
+				log_message(LOG_INFO, "An object for instance %s already exists", name);
+				ent->reply = DBUS_OBJECT_ALREADY_EXISTS;	
+			} else {
+				if (fam == 4)
+					family = AF_INET;
+				else if (fam == 6)
+					family = AF_INET6;
+
+				gchar *path = dbus_object_create_path_instance(ent->str,
+								g_strdup_printf("%d", ent->val), family);
+
+				guint instance = g_dbus_connection_register_object(global_connection, path,
+									vrrp_instance_introspection_data->interfaces[0],
+									&interface_vtable, NULL, NULL, NULL);
+
+				if (instance != 0){
+					g_hash_table_insert(objects, name, GUINT_TO_POINTER(instance));
+					log_message(LOG_INFO, "Added DBus object for instance %s on path %s", name, path);
+				}
+				g_free(path);
+			}
+		}
+		else if (ent->action == DBUS_DESTROY_INSTANCE) {
+			gchar *key = ent->str;
+			gpointer value = g_hash_table_lookup(objects, key);
+			if (value){
+				unregister_object(key, value, NULL);
+				g_hash_table_remove(objects, ent->str);
+				log_message(LOG_INFO, "Deleted DBus object for instance %s", ent->str);
+			} else {
+				log_message(LOG_INFO, "DBus object not found for instance %s", ent->str);
+			}
+
 		}
 		else if (ent->action == DBUS_SEND_GARP) {
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
@@ -573,7 +727,7 @@ dbus_stop(void)
 	pthread_mutex_unlock(&out_queue_lock);
 
 	if (global_connection != NULL)
-		g_dbus_connection_emit_signal(global_connection, NULL, DBUS_VRRP_OBJECT,
+		g_dbus_connection_emit_signal(global_connection, NULL, dbus_object_create_path_vrrp(),
 					      DBUS_VRRP_INTERFACE, "VrrpStopped", NULL, &local_error);
 	g_main_loop_quit(loop);
 
