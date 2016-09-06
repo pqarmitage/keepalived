@@ -61,6 +61,10 @@
 #include "vrrp_iprule.h"
 #include "vrrp_iproute.h"
 #endif
+#ifdef _WITH_DBUS_
+#include "vrrp_dbus.h"
+#include "global_data.h"
+#endif
 
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
@@ -2582,6 +2586,50 @@ reset_vrrp_state(vrrp_t *old_vrrp, vrrp_t *vrrp)
 	}
 }
 
+/* Executes function f on all new vrrp objects */
+void
+find_new_vrrp(void (*f)(vrrp_t *))
+{
+	element e1, e2;
+	list o = old_vrrp_data->vrrp;
+	list n = vrrp_data->vrrp;
+	vrrp_t *vrrp_n, *vrrp_o;
+	vrrp_t * new[LIST_SIZE(n)];
+	int i = 0;
+
+	/* Save all current VRRP instances in array new */
+	for (e1 = LIST_HEAD(n); e1; ELEMENT_NEXT(e1)) {
+		vrrp_n = ELEMENT_DATA(e1);
+		new[i] = vrrp_n;
+		i++;
+	}
+
+	/* Remove all VRRP that existed before from new */
+	for (e1 = LIST_HEAD(o); e1; ELEMENT_NEXT(e1)){
+		vrrp_o = ELEMENT_DATA(e1);
+		/* if vrrp_o doesn't exist anymore it won't be in new */
+		if (vrrp_exist(vrrp_o)) {
+			i = 0;
+			for (e2 = LIST_HEAD(n); e2; ELEMENT_NEXT(e2)){
+				vrrp_n = ELEMENT_DATA(e2);
+				if (strncmp(IF_NAME(IF_BASE_IFP(vrrp_n->ifp)),
+					IF_NAME(IF_BASE_IFP(vrrp_o->ifp)), IFNAMSIZ) == 0
+					&& vrrp_n->vrid == vrrp_o->vrid
+					&& vrrp_n->family == vrrp_o->family)
+				{
+					new[i] = NULL;
+					break;
+				}
+			}
+		}
+	}
+
+	for (i=0; i<LIST_SIZE(n);i++){
+		if (new[i])
+			(*f)(new[i]);
+	}
+}
+
 /* Diff when reloading configuration */
 void
 clear_diff_vrrp(void)
@@ -2609,6 +2657,11 @@ clear_diff_vrrp(void)
 			/* Remove VMAC if one was created */
 			if (__test_bit(VRRP_VMAC_BIT, &vrrp->vmac_flags))
 				netlink_link_del_vmac(vrrp);
+#endif
+#ifdef _WITH_DBUS_
+			/* Remove DBus object */
+			if (global_data->enable_dbus)
+				dbus_remove_object(vrrp);
 #endif
 		} else {
 			/*

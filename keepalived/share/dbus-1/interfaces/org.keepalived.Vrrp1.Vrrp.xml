@@ -1,11 +1,71 @@
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
 "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>
+  <!--
+	   org.freedesktop.DBus.Properties:
+	   @short_description: General VRRP interface
+
+	   Interface implemented by a single VRRP object,
+	   exposes some VRRP utility methods and signals.
+  -->
   <interface name='org.keepalived.Vrrp1.Vrrp'>
-    <method name='PrintData'>
-    </method>
-    <method name='PrintStats'>
+	<!--
+	  PrintData:
+
+	  Signals VRRP process to print contents of vrrp_data
+	  in file /tmp/keepalived.data
+	-->
+	<method name='PrintData'>
 	</method>
+	<!--
+	  PrintStats:
+
+	  Signals VRRP process to print stats in file
+	  /tmp/keepalived.stats
+	-->
+	<method name='PrintStats'>
+	</method>
+	<!--
+	  CreateInstance:
+	  @iname: unique name for the new instance.
+	  @interface: interface the instance will use.
+	  @group: VRRP group for the new instance.
+	  @family: IPv\# version (either 4 or 6).
+
+	  Creates new VRRP instance object at the path built
+	  from the given parameters, implementing interface
+	  org.keepalived.Vrrp1.Instance.
+	  @iname must be unique to this object.
+	  For every object created, there must also be an
+	  actual VRRP instance, else all methods called on
+	  this object will fail.
+	-->
+	<method name='CreateInstance'>
+	  <arg name="iname" type="s" direction="in" />
+	  <arg name="interface" type="s" direction="in" />
+	  <arg name="group" type="u" direction="in" />
+	  <arg name="family" type="u" direction="in" />
+	</method>
+	<!--
+	  DestroyInstance:
+	  @iname: name of the instance to be destroyed.
+
+	  Deletes from the bus a VRRP instance object
+	  identified by the iname value. If no such object
+	  exists, method has no effect.
+	  Only deletes the DBus object for the instance, to
+	  successfully remove an instance it must also be
+	  deleted from VRRP.
+	-->
+	<method name='DestroyInstance'>
+		<arg name="iname" type="s" direction="in" />
+	</method>
+	<!--
+	  VrrpStopped:
+
+	  Emitted when VRRP process is terminated, just before
+	  the bus is disconnected.
+	-->
 	<signal name="VrrpStopped">
 	</signal>
   </interface>
