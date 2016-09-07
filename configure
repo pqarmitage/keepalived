@@ -8165,16 +8165,6 @@ if test "x$ac_cv_lib_gio_2_0_g_bus_own_name" = xyes; then :
     eval ${PKG_PFX}_CFLAGS=\"\$${PKG_PFX}_CFLAGS $ADD_NEW\"
 
     ADD_NEW=
-   eval var=\$${PKG_PFX}_LDFLAGS
-    for item in $(pkg-config --libs gio-2.0); do
-      echo " $var " | $GREP -q " $item "
-      if test $? -ne 0; then
-	ADD_NEW="$ADD_NEW $item"
-      fi
-    done
-    eval ${PKG_PFX}_LDFLAGS=\"\$${PKG_PFX}_LDFLAGS $ADD_NEW\"
-
-    ADD_NEW=
    eval var=\$${PKG_PFX}_LIBS
     for item in $(pkg-config --libs gio-2.0); do
       echo " $var " | $GREP -q " $item "
