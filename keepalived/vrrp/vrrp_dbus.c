@@ -732,6 +732,8 @@ dbus_start(void)
 	}
 	if (pipe2(dbus_out_pipe, O_CLOEXEC)) {
 		log_message(LOG_INFO, "Unable to create outbound dbus pipe - disabling DBus");
+		close(dbus_in_pipe[0]);
+		close(dbus_in_pipe[1]);
 		return false;
 	}
 #else
@@ -741,6 +743,8 @@ dbus_start(void)
 	}
 	if (pipe(dbus_out_pipe)) {
 		log_message(LOG_INFO, "Unable to create outbound dbus pipe - disabling DBus");
+		close(dbus_in_pipe[0]);
+		close(dbus_in_pipe[1]);
 		return false;
 	}
 	fcntl (dbus_in_pipe[0], F_SETFD, FD_CLOEXEC | fcntl(dbus_in_pipe[0], F_GETFD));
