@@ -324,7 +324,6 @@ extern bool vrrp_ipvs_needed(void);
 #endif
 extern void restore_vrrp_interfaces(void);
 extern void shutdown_vrrp_instances(void);
-extern void find_new_vrrp(void (*f)(vrrp_t *));
 extern void clear_diff_vrrp(void);
 extern void clear_diff_script(void);
 extern void vrrp_restore_interface(vrrp_t *, bool, bool);

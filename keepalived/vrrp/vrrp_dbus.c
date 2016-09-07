@@ -111,7 +111,7 @@ dbus_object_create_path_vrrp(void)
 	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
 
 #ifdef HAVE_DECL_CLONE_NEWNET
-	if (network_namespace != NULL)
+	if (network_namespace)
 		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
 #endif
 	if (instance_name)
@@ -128,7 +128,7 @@ dbus_object_create_path_instance(gchar *interface, gchar *group, sa_family_t fam
 	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 
 #ifdef HAVE_DECL_CLONE_NEWNET
-	if (network_namespace != NULL)
+	if (network_namespace)
 		object_path = g_strconcat(object_path, "/", network_namespace, NULL);
 #endif
 	if (instance_name)
@@ -150,6 +150,8 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 {
 	dbus_queue_ent_t *ent = MALLOC(sizeof(dbus_queue_ent_t));
 	element e;
+	char *param = NULL;
+	int val = 0;
 
 	if (!ent)
 		return NULL;
@@ -157,15 +159,12 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	ent->action = action;
 	pthread_mutex_lock(&in_queue_lock);
 
-	char *param = NULL;
-	int val = 0;
-
-	if (args){
+	if (args) {
 		if (g_variant_is_of_type(args, G_VARIANT_TYPE("(su)")))
 			g_variant_get(args, "(su)", &param, &val);
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
 			g_variant_get(args, "(s)", &param);
-		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))){
+		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))) {
 			char *iname;
 			int family;
 			g_variant_get(args, "(ssuu)", &iname, &param, &val, &family);
@@ -230,48 +229,53 @@ handle_get_property(GDBusConnection  *connection,
 {
 	GVariant *ret = NULL;
 	dbus_queue_ent_t *ent;
+	int path_length = DBUS_VRRP_INSTANCE_PATH_DEFAULT_LENGTH;
+	gchar **dirs;
+	gchar *interface;
+	unsigned vrid;
+	int action;
+	GVariant *args;
 
-	if (!g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE)) {
-
-		int path_length = DBUS_VRRP_INSTANCE_PATH_DEFAULT_LENGTH;
-#ifdef HAVE_DECL_CLONE_NEWNET
-		if(network_namespace != NULL)
-			path_length++;
-#endif
-		if(instance_name)
-			path_length++;
-
-		/* object_path will have interface and group as 
-		 * the third to last and the second to last levels */
-		gchar **dirs = g_strsplit(object_path, "/", path_length);
-		gchar *interface = dirs[path_length-3];
-		unsigned vrid = atoi(dirs[path_length-2]);
-		int action = DBUS_ACTION_NONE;
-
-		if (!g_strcmp0(property_name, "Name"))
-			action = DBUS_GET_NAME;
-		else if (!g_strcmp0(property_name, "State"))
-			action = DBUS_GET_STATUS;
-		else
-			log_message(LOG_INFO, "Property %s does not exist", property_name);
-
-		if (action != DBUS_ACTION_NONE) {
-			GVariant *args = g_variant_new("(su)", interface, vrid);
-			ent = process_method_call(action, args, true);
-
-			if (ent) {
-				if (ent->reply == DBUS_SUCCESS) {
-					if (action == DBUS_GET_NAME)
-						ret = g_variant_new("(s)", ent->str);
-					else if (action == DBUS_GET_STATUS)
-						ret = g_variant_new("(u)", ent->val);
-				}
-
-				FREE(ent);
-			}
-		}
-	} else
+	if (g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE)) {
 		log_message(LOG_INFO, "Interface %s has not been implemented yet", interface_name);
+		return NULL;
+	}
+
+#ifdef HAVE_DECL_CLONE_NEWNET
+	if(network_namespace)
+		path_length++;
+#endif
+	if(instance_name)
+		path_length++;
+
+	/* object_path will have interface and group as 
+	 * the third to last and the second to last levels */
+	dirs = g_strsplit(object_path, "/", path_length);
+	interface = dirs[path_length-3];
+	vrid = atoi(dirs[path_length-2]);
+
+	if (!g_strcmp0(property_name, "Name"))
+		action = DBUS_GET_NAME;
+	else if (!g_strcmp0(property_name, "State"))
+		action = DBUS_GET_STATUS;
+	else {
+		log_message(LOG_INFO, "Property %s does not exist", property_name);
+		return NULL;
+	}
+
+	args = g_variant_new("(su)", interface, vrid);
+	ent = process_method_call(action, args, true);
+
+	if (ent) {
+		if (ent->reply == DBUS_SUCCESS) {
+			if (action == DBUS_GET_NAME)
+				ret = g_variant_new("(s)", ent->str);
+			else if (action == DBUS_GET_STATUS)
+				ret = g_variant_new("(u)", ent->val);
+		}
+
+		FREE(ent);
+	}
 
 	return ret;
 }
@@ -338,8 +342,8 @@ on_bus_acquired(GDBusConnection *connection,
 
 	/* register VRRP object */
 	guint vrrp = g_dbus_connection_register_object(connection, dbus_object_create_path_vrrp(),
-												 vrrp_introspection_data->interfaces[0],
-												 &interface_vtable, NULL, NULL, NULL);
+							 vrrp_introspection_data->interfaces[0],
+							 &interface_vtable, NULL, NULL, NULL);
 	g_hash_table_insert(objects, "__Vrrp__", GUINT_TO_POINTER(vrrp));
 	
 	/* for each available VRRP instance, register an object */
@@ -353,7 +357,7 @@ on_bus_acquired(GDBusConnection *connection,
 		vrrp_t * vrrp = ELEMENT_DATA(e);
 
 		gchar *path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
-						g_strdup_printf("%d",vrrp->vrid), vrrp->family);
+						g_strdup_printf("%d", vrrp->vrid), vrrp->family);
 		instance = g_dbus_connection_register_object(connection, path,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
@@ -496,7 +500,7 @@ dbus_send_state_signal(vrrp_t *vrrp)
 	g_free(object_path);
 }
 
-void
+static void
 dbus_create_object(vrrp_t *vrrp)
 {
 	if (g_hash_table_lookup(objects, vrrp->iname)) {
@@ -509,7 +513,7 @@ dbus_create_object(vrrp_t *vrrp)
 							vrrp_instance_introspection_data->interfaces[0],
 							&interface_vtable, NULL, NULL, NULL);
 
-		if (instance != 0){
+		if (instance != 0) {
 			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
 			log_message(LOG_INFO, "Added DBus object for instance %s on path %s", vrrp->iname, object_path);
 		}
@@ -521,6 +525,66 @@ void
 dbus_remove_object(vrrp_t *vrrp)
 {
 	unregister_object(vrrp->iname, g_hash_table_lookup(objects, vrrp->iname), NULL);
+}
+
+static vrrp_t *
+vrrp_exist(vrrp_t *old_vrrp)
+{
+	element e;
+	list l = vrrp_data->vrrp;
+	vrrp_t *vrrp;
+
+	if (LIST_ISEMPTY(l))
+		return NULL;
+
+	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
+		vrrp = ELEMENT_DATA(e);
+		if (!strcmp(vrrp->iname, old_vrrp->iname))
+			return vrrp;
+	}
+
+	return NULL;
+}
+
+void
+dbus_add_new_instances(list o, list n)
+{
+	element e1, e2;
+	vrrp_t *vrrp_n, *vrrp_o;
+	vrrp_t *new[LIST_SIZE(n)];
+	int i = 0;
+
+	/* Save all current VRRP instances in array new */
+	for (e1 = LIST_HEAD(n); e1; ELEMENT_NEXT(e1)) {
+		vrrp_n = ELEMENT_DATA(e1);
+		new[i] = vrrp_n;
+		i++;
+	}
+
+	/* Remove all VRRP that existed before from new */
+	for (e1 = LIST_HEAD(o); e1; ELEMENT_NEXT(e1)){
+		vrrp_o = ELEMENT_DATA(e1);
+		/* if vrrp_o doesn't exist anymore it won't be in new */
+		if (vrrp_exist(vrrp_o)) {
+			i = 0;
+			for (e2 = LIST_HEAD(n); e2; ELEMENT_NEXT(e2)){
+				vrrp_n = ELEMENT_DATA(e2);
+				if (strncmp(IF_NAME(IF_BASE_IFP(vrrp_n->ifp)),
+					IF_NAME(IF_BASE_IFP(vrrp_o->ifp)), IFNAMSIZ) == 0
+					&& vrrp_n->vrid == vrrp_o->vrid
+					&& vrrp_n->family == vrrp_o->family)
+				{
+					new[i] = NULL;
+					break;
+				}
+			}
+		}
+	}
+
+	for (i=0; i<LIST_SIZE(n);i++){
+		if (new[i])
+			dbus_create_object(new[i]);
+	}
 }
 
 static void
@@ -588,6 +652,8 @@ handle_dbus_msg(thread_t *thread)
 					family = AF_INET;
 				else if (fam == 6)
 					family = AF_INET6;
+				else
+					family = AF_UNSPEC;
 
 				gchar *path = dbus_object_create_path_instance(ent->str,
 								g_strdup_printf("%d", ent->val), family);
@@ -596,7 +662,7 @@ handle_dbus_msg(thread_t *thread)
 									vrrp_instance_introspection_data->interfaces[0],
 									&interface_vtable, NULL, NULL, NULL);
 
-				if (instance != 0){
+				if (instance) {
 					g_hash_table_insert(objects, name, GUINT_TO_POINTER(instance));
 					log_message(LOG_INFO, "Added DBus object for instance %s on path %s", name, path);
 				}
@@ -606,14 +672,12 @@ handle_dbus_msg(thread_t *thread)
 		else if (ent->action == DBUS_DESTROY_INSTANCE) {
 			gchar *key = ent->str;
 			gpointer value = g_hash_table_lookup(objects, key);
-			if (value){
+			if (value) {
 				unregister_object(key, value, NULL);
 				g_hash_table_remove(objects, ent->str);
 				log_message(LOG_INFO, "Deleted DBus object for instance %s", ent->str);
-			} else {
+			} else
 				log_message(LOG_INFO, "DBus object not found for instance %s", ent->str);
-			}
-
 		}
 		else if (ent->action == DBUS_SEND_GARP) {
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
