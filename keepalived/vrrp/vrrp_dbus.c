@@ -122,7 +122,7 @@ dbus_object_create_path_vrrp(void)
 }
 
 static gchar *
-dbus_object_create_path_instance(gchar *interface, gchar *group, sa_family_t family)
+dbus_object_create_path_instance(const gchar *interface, const gchar *group, sa_family_t family)
 {
 	gchar *object_path = DBUS_VRRP_OBJECT_ROOT;
 	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
@@ -366,7 +366,7 @@ on_bus_acquired(GDBusConnection *connection,
 		instance = g_dbus_connection_register_object(connection, path,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
-		if (instance != 0)
+		if (instance)
 			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
 
 		g_free(path);
@@ -505,25 +505,36 @@ dbus_send_state_signal(vrrp_t *vrrp)
 	g_free(object_path);
 }
 
+static int
+dbus_create_object_params(char *instance_name, const char *interface_name, int vrid, int family) 
+{
+	gchar *object_path;
+
+	if (g_hash_table_lookup(objects, instance_name)) {
+		log_message(LOG_INFO, "An object for instance %s already exists", instance_name);
+		return DBUS_OBJECT_ALREADY_EXISTS;	
+	}
+
+	object_path = dbus_object_create_path_instance(interface_name,
+					g_strdup_printf("%d", vrid), family);
+
+	guint instance = g_dbus_connection_register_object(global_connection, object_path,
+						vrrp_instance_introspection_data->interfaces[0],
+						&interface_vtable, NULL, NULL, NULL);
+
+	if (instance) {
+		g_hash_table_insert(objects, instance_name, GUINT_TO_POINTER(instance));
+		log_message(LOG_INFO, "Added DBus object for instance %s on path %s", instance_name, object_path);
+	}
+	g_free(object_path);
+
+	return DBUS_SUCCESS;
+}
+
 static void
 dbus_create_object(vrrp_t *vrrp)
 {
-	if (g_hash_table_lookup(objects, vrrp->iname)) {
-		log_message(LOG_INFO, "An object for instance %s already exists", vrrp->iname);
-	} else {
-		gchar *object_path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)),
-						g_strdup_printf("%d", vrrp->vrid), vrrp->family);
-
-		guint instance = g_dbus_connection_register_object(global_connection, object_path,
-							vrrp_instance_introspection_data->interfaces[0],
-							&interface_vtable, NULL, NULL, NULL);
-
-		if (instance != 0) {
-			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
-			log_message(LOG_INFO, "Added DBus object for instance %s on path %s", vrrp->iname, object_path);
-		}
-		g_free(object_path);
-	}
+	dbus_create_object_params(vrrp->iname, IF_NAME(IF_BASE_IFP(vrrp->ifp)),vrrp->vrid, vrrp->family);
 }
 
 void
@@ -640,33 +651,9 @@ handle_dbus_msg(thread_t *thread)
 		else if (ent->action == DBUS_CREATE_INSTANCE) {
 			gchar *name;
 			int fam;
-			sa_family_t family;
 			g_variant_get(ent->args, "(su)", &name, &fam);
 
-			if (g_hash_table_lookup(objects, name)) {
-				log_message(LOG_INFO, "An object for instance %s already exists", name);
-				ent->reply = DBUS_OBJECT_ALREADY_EXISTS;	
-			} else {
-				if (fam == 4)
-					family = AF_INET;
-				else if (fam == 6)
-					family = AF_INET6;
-				else
-					family = AF_UNSPEC;
-
-				gchar *path = dbus_object_create_path_instance(ent->str,
-								g_strdup_printf("%d", ent->val), family);
-
-				guint instance = g_dbus_connection_register_object(global_connection, path,
-									vrrp_instance_introspection_data->interfaces[0],
-									&interface_vtable, NULL, NULL, NULL);
-
-				if (instance) {
-					g_hash_table_insert(objects, name, GUINT_TO_POINTER(instance));
-					log_message(LOG_INFO, "Added DBus object for instance %s on path %s", name, path);
-				}
-				g_free(path);
-			}
+			ent->reply = dbus_create_object_params(name, ent->str, ent->val, fam == 4 ? AF_INET : fam == 6 ? AF_INET6 : AF_UNSPEC);
 		}
 		else if (ent->action == DBUS_DESTROY_INSTANCE) {
 			gchar *key = ent->str;
