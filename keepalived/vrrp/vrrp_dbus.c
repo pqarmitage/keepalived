@@ -158,7 +158,6 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 		return NULL;
 
 	ent->action = action;
-	pthread_mutex_lock(&in_queue_lock);
 
 	if (args) {
 		if (g_variant_is_of_type(args, G_VARIANT_TYPE("(su)")))
@@ -176,6 +175,7 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	if (param)
 		strcpy(ent->str, param);
 	ent->val = val;
+	pthread_mutex_lock(&in_queue_lock);
 	list_add(dbus_in_queue, ent);
 	pthread_mutex_unlock(&in_queue_lock);
 
