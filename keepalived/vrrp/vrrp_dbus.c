@@ -527,63 +527,57 @@ dbus_remove_object(vrrp_t *vrrp)
 	unregister_object(vrrp->iname, g_hash_table_lookup(objects, vrrp->iname), NULL);
 }
 
-static vrrp_t *
-vrrp_exist(vrrp_t *old_vrrp)
-{
-	element e;
-	list l = vrrp_data->vrrp;
-	vrrp_t *vrrp;
-
-	if (LIST_ISEMPTY(l))
-		return NULL;
-
-	for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
-		vrrp = ELEMENT_DATA(e);
-		if (!strcmp(vrrp->iname, old_vrrp->iname))
-			return vrrp;
-	}
-
-	return NULL;
-}
-
 void
 dbus_add_new_instances(list o, list n)
 {
-	element e1, e2;
-	vrrp_t *vrrp_n, *vrrp_o;
-	vrrp_t *new[LIST_SIZE(n)];
-	int i = 0;
+	element e1, e2, e3;
+	vrrp_t *vrrp_n, *vrrp_o, *vrrp_n3;
 
-	/* Save all current VRRP instances in array new */
+	if (LIST_ISEMPTY(n))
+		return;
+
 	for (e1 = LIST_HEAD(n); e1; ELEMENT_NEXT(e1)) {
-		vrrp_n = ELEMENT_DATA(e1);
-		new[i] = vrrp_n;
-		i++;
-	}
+		char *n_name;
+		bool match_found;
 
-	/* Remove all VRRP that existed before from new */
-	for (e1 = LIST_HEAD(o); e1; ELEMENT_NEXT(e1)){
-		vrrp_o = ELEMENT_DATA(e1);
-		/* if vrrp_o doesn't exist anymore it won't be in new */
-		if (vrrp_exist(vrrp_o)) {
-			i = 0;
-			for (e2 = LIST_HEAD(n); e2; ELEMENT_NEXT(e2)){
-				vrrp_n = ELEMENT_DATA(e2);
-				if (strncmp(IF_NAME(IF_BASE_IFP(vrrp_n->ifp)),
-					IF_NAME(IF_BASE_IFP(vrrp_o->ifp)), IFNAMSIZ) == 0
-					&& vrrp_n->vrid == vrrp_o->vrid
-					&& vrrp_n->family == vrrp_o->family)
-				{
-					new[i] = NULL;
+		if (LIST_ISEMPTY(o)) {
+			dbus_create_object(vrrp_n);
+			continue;
+		}
+
+		vrrp_n = ELEMENT_DATA(e1);
+		n_name = IF_BASE_IFP(vrrp_n->ifp)->ifname;
+
+		/* Try an find an instance with same vrid/family/interface that existed before and now */
+		for (e2 = LIST_HEAD(o), match_found = false; e2 && !match_found; ELEMENT_NEXT(e2)) {
+			vrrp_o = ELEMENT_DATA(e2);
+
+			if (vrrp_n->vrid == vrrp_o->vrid &&
+			    vrrp_n->family == vrrp_o->family &&
+			    !strcmp(n_name, IF_BASE_IFP(vrrp_o->ifp)->ifname)) {
+				/* If the old instance exists in the new config,
+				 * then the dbus object will exist */
+				if (!strcmp(vrrp_n->iname, vrrp_o->iname)) {
+					match_found = true;
 					break;
+				}
+
+				/* Check if the old instance name we found still exists
+				 * (but has a different vrid/family/interface) */
+				for (e3 = LIST_HEAD(n); e3; ELEMENT_NEXT(e3)) {
+					vrrp_n3 = ELEMENT_DATA(e3);
+					if (!strcmp(vrrp_o->iname, vrrp_n3->iname)) {
+						match_found = true;
+						break;
+					}
 				}
 			}
 		}
-	}
 
-	for (i=0; i<LIST_SIZE(n);i++){
-		if (new[i])
-			dbus_create_object(new[i]);
+		if (match_found)
+			continue;
+
+		dbus_create_object(vrrp_n);
 	}
 }
 
