@@ -101,8 +101,9 @@ set_valid_path(char *valid_path, const char *path)
 static gboolean
 unregister_object(gpointer key, gpointer value, gpointer user_data)
 {
-	guint object = GPOINTER_TO_UINT(value);
-	return g_dbus_connection_unregister_object(global_connection, object);
+	g_hash_table_remove(objects, key);
+
+	return g_dbus_connection_unregister_object(global_connection, GPOINTER_TO_UINT(value));
 }
 
 static gchar *
@@ -476,6 +477,8 @@ dbus_main(__attribute__ ((unused)) void *unused)
 	/* cleanup after loop terminates */
 	g_bus_unown_name(owner_id);
 	global_connection = NULL;
+	log_message(LOG_INFO, "Released DBus");
+
 	pthread_exit(0);
 }
 
@@ -537,10 +540,21 @@ dbus_create_object(vrrp_t *vrrp)
 	dbus_create_object_params(vrrp->iname, IF_NAME(IF_BASE_IFP(vrrp->ifp)),vrrp->vrid, vrrp->family);
 }
 
+static void
+dbus_unregister_object(char *str)
+{
+	gpointer value = g_hash_table_lookup(objects, str);
+	if (value) {
+		unregister_object(str, value, NULL);
+		log_message(LOG_INFO, "Deleted DBus object for instance %s", str);
+	} else
+		log_message(LOG_INFO, "DBus object not found for instance %s", str);
+}
+
 void
 dbus_remove_object(vrrp_t *vrrp)
 {
-	unregister_object(vrrp->iname, g_hash_table_lookup(objects, vrrp->iname), NULL);
+	dbus_unregister_object(vrrp->iname);
 }
 
 void
@@ -656,14 +670,7 @@ handle_dbus_msg(thread_t *thread)
 			ent->reply = dbus_create_object_params(name, ent->str, ent->val, fam == 4 ? AF_INET : fam == 6 ? AF_INET6 : AF_UNSPEC);
 		}
 		else if (ent->action == DBUS_DESTROY_INSTANCE) {
-			gchar *key = ent->str;
-			gpointer value = g_hash_table_lookup(objects, key);
-			if (value) {
-				unregister_object(key, value, NULL);
-				g_hash_table_remove(objects, ent->str);
-				log_message(LOG_INFO, "Deleted DBus object for instance %s", ent->str);
-			} else
-				log_message(LOG_INFO, "DBus object not found for instance %s", ent->str);
+			dbus_unregister_object(ent->str);
 		}
 		else if (ent->action == DBUS_SEND_GARP) {
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
