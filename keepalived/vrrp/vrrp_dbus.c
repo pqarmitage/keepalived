@@ -152,6 +152,7 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	element e;
 	char *param = NULL;
 	int val = 0;
+	char *msg;
 
 	if (!ent)
 		return NULL;
@@ -187,16 +188,20 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	}
 
 	/* We could loop through looking for e->data == ent */
+	msg = NULL;
 	pthread_mutex_lock(&out_queue_lock);
 	if (!LIST_ISEMPTY(dbus_out_queue)) {
 		e = LIST_HEAD(dbus_out_queue);
 		free_list_element(dbus_out_queue, e);
 		if (ent != e->data)
-			log_message(LOG_INFO, "Returned dbus entry mismatch");
+			msg = "Returned dbus entry mismatch";
 	}
 	else
-		log_message(LOG_INFO, "Empty dbus out queue");
+		msg = "Empty dbus out queue";
 	pthread_mutex_unlock(&out_queue_lock);
+	
+	if (msg)
+		log_message(LOG_INFO, "%s", msg);
 
 	if (ent->action != action)
 		log_message(LOG_INFO, "DBus expected receive action %d and received %d", action, ent->action);
