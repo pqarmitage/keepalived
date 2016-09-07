@@ -221,9 +221,6 @@ start_vrrp(void)
 #endif
 
 	if (reload) {
-#ifdef _WITH_DBUS_
-		dbus_add_new_instances(old_vrrp_data->vrrp, vrrp_data->vrrp);
-#endif
 		clear_diff_saddresses();
 #ifdef _HAVE_FIB_ROUTING_
 		clear_diff_srules();
@@ -257,6 +254,11 @@ start_vrrp(void)
 
 #ifdef _HAVE_LIBIPTC_
 	iptables_startup();
+#endif
+
+#ifdef _WITH_DBUS_
+	if (reload && global_data->enable_dbus)
+		dbus_add_new_instances(old_vrrp_data->vrrp, vrrp_data->vrrp);
 #endif
 
 	/* Post initializations */
