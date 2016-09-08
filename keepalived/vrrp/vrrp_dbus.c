@@ -157,6 +157,7 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	char *param = NULL;
 	int val = 0;
 	char *msg;
+	int ret;
 
 	if (!ent)
 		return NULL;
@@ -192,9 +193,11 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	write(dbus_in_pipe[1], ent, 1);
 
 	/* Wait for a response */
-	while (read(dbus_out_pipe[0], ent, 1) == -1 && errno == EINTR) {
+	while ((ret = read(dbus_out_pipe[0], ent, 1)) == -1 && errno == EINTR) {
 		log_message(LOG_INFO, "dbus_out_pipe read returned EINTR");
 	}
+	if (ret == -1)
+		log_message(LOG_INFO, "DBus response read error - errno = %d", errno);
 
 	/* We could loop through looking for e->data == ent */
 	msg = NULL;
