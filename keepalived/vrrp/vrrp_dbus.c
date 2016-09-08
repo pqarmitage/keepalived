@@ -24,6 +24,7 @@
 
 #include <pthread.h>
 #include <semaphore.h>
+#include <signal.h>
 #include <gio/gio.h>
 #include <ctype.h>
 #include <fcntl.h>
@@ -164,25 +165,16 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 
 	if (args) {
 		if (g_variant_is_of_type(args, G_VARIANT_TYPE("(su)")))
-{
 			g_variant_get(args, "(su)", &param, &val);
-log_message(LOG_INFO, "action %d: (su): param %s, val %d", action, param, val);
-}
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
-{
 			g_variant_get(args, "(s)", &param);
-log_message(LOG_INFO, "action %d: (s): param %s", action, param);
-}
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))) {
 			char *iname;
 			int family;
 			g_variant_get(args, "(ssuu)", &iname, &param, &val, &family);
 			ent->args = g_variant_new("(su)", iname, family);
-log_message(LOG_INFO, "action %d: (ssuu): iname %s, param %s, val %d, family %d", action, iname, param, val, family);
 		}
 	}
-else
-log_message(LOG_INFO, "action %d: No args", action);
 
 	if (param)
 		strcpy(ent->str, param);
@@ -379,10 +371,7 @@ on_bus_acquired(GDBusConnection *connection,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
 		if (instance)
-{
-log_message(LOG_INFO, "Inserting %s with %p %u", vrrp->iname, GUINT_TO_POINTER(instance), instance);
 			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
-}
 
 		g_free(path);
 	}
@@ -742,6 +731,7 @@ bool
 dbus_start(void)
 {
 	pthread_t dbus_thread;
+	sigset_t sigset, cursigset;
 
 	dbus_in_queue = alloc_list(NULL, NULL);
 	dbus_out_queue = alloc_list(NULL, NULL);
@@ -783,8 +773,15 @@ dbus_start(void)
 	/* Initialise the thread termination semaphore */
 	sem_init(&thread_end, 0, 0);
 
+	/* Block signals (all) we don't want the new thread to process */
+	sigemptyset(&sigset);
+	pthread_sigmask(SIG_SETMASK, &sigset, &cursigset);
+
 	/* Now create the dbus thread */
 	pthread_create(&dbus_thread, NULL, &dbus_main, NULL);
+
+	/* Reenable our signals */
+	pthread_sigmask(SIG_SETMASK, &cursigset, NULL);
 
 	return true;
 }
