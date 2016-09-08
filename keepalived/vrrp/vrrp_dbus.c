@@ -23,6 +23,7 @@
 #include "config.h"
 
 #include <pthread.h>
+#include <semaphore.h>
 #include <gio/gio.h>
 #include <ctype.h>
 #include <fcntl.h>
@@ -79,6 +80,7 @@ static list dbus_in_queue, dbus_out_queue;
 static pthread_mutex_t in_queue_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t out_queue_lock = PTHREAD_MUTEX_INITIALIZER;
 static int dbus_in_pipe[2], dbus_out_pipe[2];
+static sem_t thread_end;
 
 /* The only characters that are valid in a dbus path are A-Z, a-z, 0-9, _ */
 static char *
@@ -162,16 +164,25 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 
 	if (args) {
 		if (g_variant_is_of_type(args, G_VARIANT_TYPE("(su)")))
+{
 			g_variant_get(args, "(su)", &param, &val);
+log_message(LOG_INFO, "action %d: (su): param %s, val %d", action, param, val);
+}
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
+{
 			g_variant_get(args, "(s)", &param);
+log_message(LOG_INFO, "action %d: (s): param %s", action, param);
+}
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))) {
 			char *iname;
 			int family;
 			g_variant_get(args, "(ssuu)", &iname, &param, &val, &family);
 			ent->args = g_variant_new("(su)", iname, family);
+log_message(LOG_INFO, "action %d: (ssuu): iname %s, param %s, val %d, family %d", action, iname, param, val, family);
 		}
 	}
+else
+log_message(LOG_INFO, "action %d: No args", action);
 
 	if (param)
 		strcpy(ent->str, param);
@@ -368,7 +379,10 @@ on_bus_acquired(GDBusConnection *connection,
 							     vrrp_instance_introspection_data->interfaces[0],
 							     &interface_vtable, NULL, NULL, NULL);
 		if (instance)
+{
+log_message(LOG_INFO, "Inserting %s with %p %u", vrrp->iname, GUINT_TO_POINTER(instance), instance);
 			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
+}
 
 		g_free(path);
 	}
@@ -477,8 +491,8 @@ dbus_main(__attribute__ ((unused)) void *unused)
 	/* cleanup after loop terminates */
 	g_bus_unown_name(owner_id);
 	global_connection = NULL;
-	log_message(LOG_INFO, "Released DBus");
 
+	sem_post(&thread_end);
 	pthread_exit(0);
 }
 
@@ -766,6 +780,9 @@ dbus_start(void)
 
 	thread_add_read(master, handle_dbus_msg, NULL, dbus_in_pipe[0], TIMER_NEVER);
 
+	/* Initialise the thread termination semaphore */
+	sem_init(&thread_end, 0, 0);
+
 	/* Now create the dbus thread */
 	pthread_create(&dbus_thread, NULL, &dbus_main, NULL);
 
@@ -776,6 +793,8 @@ void
 dbus_stop(void)
 {
 	GError *local_error;
+	struct timespec thread_end_wait;
+	int ret;
 
 	pthread_mutex_lock(&in_queue_lock);
 	free_list(&dbus_in_queue);
@@ -794,4 +813,19 @@ dbus_stop(void)
 
 	g_dbus_node_info_unref(vrrp_introspection_data);
 	g_dbus_node_info_unref(vrrp_instance_introspection_data);
+
+	clock_gettime(CLOCK_REALTIME, &thread_end_wait);
+	thread_end_wait.tv_sec += 1;
+	while ((ret = sem_timedwait(&thread_end, &thread_end_wait)) == -1 && errno == EINTR) ;
+
+	if (ret == -1 ) {
+		if (errno == ETIMEDOUT) 
+			log_message(LOG_INFO, "DBus thread termination timed out");
+		else
+			log_message(LOG_INFO, "sem_timewait error %d", errno);
+	}
+	else {
+		log_message(LOG_INFO, "Released DBus");
+		sem_destroy(&thread_end);
+	}
 }
