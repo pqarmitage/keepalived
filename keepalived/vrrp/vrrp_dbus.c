@@ -168,6 +168,11 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 			g_variant_get(args, "(su)", &param, &val);
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
 			g_variant_get(args, "(s)", &param);
+		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(suu)"))) {
+			int family;
+			g_variant_get(args, "(suu)", &param, &val, &family);
+			ent->args = g_variant_new("(u)", family);
+		}
 		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))) {
 			char *iname;
 			int family;
@@ -242,6 +247,7 @@ handle_get_property(GDBusConnection  *connection,
 	gchar **dirs;
 	gchar *interface;
 	unsigned vrid;
+	unsigned family;
 	int action;
 	GVariant *args;
 
@@ -262,6 +268,7 @@ handle_get_property(GDBusConnection  *connection,
 	dirs = g_strsplit(object_path, "/", path_length);
 	interface = dirs[path_length-3];
 	vrid = atoi(dirs[path_length-2]);
+	family = !g_strcmp0(dirs[path_length-1], "IPv4") ? AF_INET : !g_strcmp0(dirs[path_length-1], "IPv6") ? AF_INET6 : AF_UNSPEC;
 
 	if (!g_strcmp0(property_name, "Name"))
 		action = DBUS_GET_NAME;
@@ -272,7 +279,7 @@ handle_get_property(GDBusConnection  *connection,
 		return NULL;
 	}
 
-	args = g_variant_new("(su)", interface, vrid);
+	args = g_variant_new("(suu)", interface, vrid, family);
 	ent = process_method_call(action, args, true);
 
 	if (ent) {
@@ -650,6 +657,7 @@ handle_dbus_msg(thread_t *thread)
 	element e;
 	vrrp_t *vrrp;
 	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
+	unsigned family;
 
 	read(dbus_in_pipe[0], &recv_buf, 1);
 
@@ -667,10 +675,9 @@ handle_dbus_msg(thread_t *thread)
 		}
 		else if (ent->action == DBUS_CREATE_INSTANCE) {
 			gchar *name;
-			int fam;
-			g_variant_get(ent->args, "(su)", &name, &fam);
+			g_variant_get(ent->args, "(su)", &name, &family);
 
-			ent->reply = dbus_create_object_params(name, ent->str, ent->val, fam == 4 ? AF_INET : fam == 6 ? AF_INET6 : AF_UNSPEC);
+			ent->reply = dbus_create_object_params(name, ent->str, ent->val, family == 4 ? AF_INET : family == 6 ? AF_INET6 : AF_UNSPEC);
 		}
 		else if (ent->action == DBUS_DESTROY_INSTANCE) {
 			dbus_unregister_object(ent->str);
@@ -695,6 +702,7 @@ handle_dbus_msg(thread_t *thread)
 			/* we look for the vrrp instance object that corresponds to our interface and group */
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
 
+			g_variant_get(ent->args, "(u)", &family);
 			if (!LIST_ISEMPTY(vrrp_data->vrrp)) {
 				for (e = LIST_HEAD(vrrp_data->vrrp); e; ELEMENT_NEXT(e)) {
 					vrrp_t * vrrp = ELEMENT_DATA(e);
@@ -702,7 +710,9 @@ handle_dbus_msg(thread_t *thread)
 					/* The only valid characters in a path a A-Z, a-z, 0-9, _ */
 					set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp)));
 
-					if (!strcmp(ent->str, standardized_name) && ent->val == vrrp->vrid) {
+					if (!strcmp(ent->str, standardized_name) &&
+					    ent->val == vrrp->vrid &&
+					    vrrp->family == family) {
 						/* the property_name argument is the property we want to Get */
 						if (ent->action == DBUS_GET_NAME)
 							strcpy(ent->str, vrrp->iname);
