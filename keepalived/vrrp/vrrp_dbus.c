@@ -869,7 +869,7 @@ dbus_start(void)
 void
 dbus_stop(void)
 {
-	GError *local_error;
+	GError *local_error = NULL;
 	struct timespec thread_end_wait;
 	int ret;
 	gchar *path;
