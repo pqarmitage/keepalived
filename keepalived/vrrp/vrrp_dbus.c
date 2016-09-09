@@ -101,6 +101,32 @@ set_valid_path(char *valid_path, const char *path)
 	return valid_path;
 }
 
+static vrrp_t *
+get_vrrp_instance(const char *ifname, int vrid, int family)
+{
+	element e;
+	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
+	vrrp_t *vrrp;
+
+	if (LIST_ISEMPTY(vrrp_data->vrrp))
+		return NULL;
+
+	for (e = LIST_HEAD(vrrp_data->vrrp); e; ELEMENT_NEXT(e)) {
+		vrrp = ELEMENT_DATA(e);
+
+		if (vrrp->vrid == vrid &&
+		    vrrp->family == family) {
+			/* The only valid characters in a path a A-Z, a-z, 0-9, _ */
+			set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp)));
+
+			if (!strcmp(ifname, standardized_name))
+				return vrrp;
+		}
+	}
+
+	return NULL;
+}
+
 static gboolean
 unregister_object(gpointer key, gpointer value, gpointer user_data)
 {
@@ -152,6 +178,7 @@ dbus_object_create_path_instance(const gchar *interface, const gchar *group, sa_
 static dbus_queue_ent_t *
 process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 {
+// TODO - don't MALLOC - not thread safe - do we need a queue - just one at a time
 	dbus_queue_ent_t *ent = MALLOC(sizeof(dbus_queue_ent_t));
 	element e;
 	char *param = NULL;
@@ -659,7 +686,6 @@ handle_dbus_msg(thread_t *thread)
 	list l;
 	element e;
 	vrrp_t *vrrp;
-	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 	unsigned family;
 
 	read(dbus_in_pipe[0], &recv_buf, 1);
@@ -706,30 +732,22 @@ handle_dbus_msg(thread_t *thread)
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
 
 			g_variant_get(ent->args, "(u)", &family);
-			if (!LIST_ISEMPTY(vrrp_data->vrrp)) {
-				for (e = LIST_HEAD(vrrp_data->vrrp); e; ELEMENT_NEXT(e)) {
-					vrrp_t * vrrp = ELEMENT_DATA(e);
+			vrrp = get_vrrp_instance(ent->str, ent->val, family);
 
-					/* The only valid characters in a path a A-Z, a-z, 0-9, _ */
-					set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp)));
-
-					if (!strcmp(ent->str, standardized_name) &&
-					    ent->val == vrrp->vrid &&
-					    vrrp->family == family) {
-						/* the property_name argument is the property we want to Get */
-						if (ent->action == DBUS_GET_NAME)
-							strcpy(ent->str, vrrp->iname);
-						else if (ent->action == DBUS_GET_STATUS)
-							ent->val = vrrp->state;
-						else {
-							/* How did we get here? */
-							ent->val = 0;
-							ent->str[0] = '\0';
-						}
-						ent->reply = DBUS_SUCCESS;
-						break;
-					}
+			if (vrrp) {
+				/* the property_name argument is the property we want to Get */
+				if (ent->action == DBUS_GET_NAME) {
+					strncpy(ent->str, vrrp->iname, sizeof(ent->str));
+					ent->str[sizeof(ent->str) - 1] = '\0';
 				}
+				else if (ent->action == DBUS_GET_STATUS)
+					ent->val = vrrp->state;
+				else {
+					/* How did we get here? */
+					ent->val = 0;
+					ent->str[0] = '\0';
+				}
+				ent->reply = DBUS_SUCCESS;
 			}
 		}
 		return_dbus_msg(ent);
