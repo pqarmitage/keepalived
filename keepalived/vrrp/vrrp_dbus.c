@@ -456,6 +456,12 @@ on_bus_acquired(GDBusConnection *connection,
 		if (instance)
 			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
 	}
+
+	/* Notify DBus of the state of our instances */
+	for (e = LIST_HEAD(vrrp_data->vrrp); e; ELEMENT_NEXT(e)) {
+		vrrp_t * vrrp = ELEMENT_DATA(e);
+		dbus_send_state_signal(vrrp);
+	}
 }
 
 /* run if bus name is acquired successfully */
@@ -575,13 +581,12 @@ dbus_main(__attribute__ ((unused)) void *unused)
 void
 dbus_send_state_signal(vrrp_t *vrrp)
 {
-	GError *local_error;
+	GError *local_error = NULL;
+
 	/* the interface will go through the initial state changes before
 	 * the main loop can be started and global_connection initialised */
-	if (global_connection == NULL) {
-		log_message(LOG_INFO, "Not connected to the %s bus", DBUS_SERVICE_NAME);
+	if (global_connection == NULL)
 		return;
-	}
 
 	gchar *object_path = dbus_object_create_path_instance(IF_NAME(IF_BASE_IFP(vrrp->ifp)), vrrp->vrid, vrrp->family);
 
