@@ -45,6 +45,7 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/types.h>
 
 #include "vrrp_dbus.h"
 #include "vrrp_data.h"
@@ -64,6 +65,7 @@ typedef enum dbus_action {
 	DBUS_ACTION_NONE,
 	DBUS_PRINT_DATA,
 	DBUS_PRINT_STATS,
+	DBUS_RELOAD,
 	DBUS_CREATE_INSTANCE,
 	DBUS_DESTROY_INSTANCE,
 	DBUS_SEND_GARP,
@@ -375,6 +377,9 @@ handle_method_call(GDBusConnection *connection,
 		} else if (g_strcmp0(method_name, "PrintStats") == 0) {
 			process_method_call(DBUS_PRINT_STATS, NULL, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);
+		} else if (g_strcmp0(method_name, "ReloadConfig") == 0) {
+			g_dbus_method_invocation_return_value(invocation, NULL);
+			kill(getppid(), SIGHUP);
 		} else if (g_strcmp0(method_name, "CreateInstance") == 0) {
 			process_method_call(DBUS_CREATE_INSTANCE, parameters, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);

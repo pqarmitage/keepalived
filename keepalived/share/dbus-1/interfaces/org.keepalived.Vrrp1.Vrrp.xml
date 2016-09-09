@@ -26,6 +26,13 @@
 	<method name='PrintStats'>
 	</method>
 	<!--
+	  ReloadConfig:
+
+	  Signals keepalvied process to reload its configuration
+	-->
+	<method name='ReloadConfig'>
+	</method>
+	<!--
 	  CreateInstance:
 	  @iname: unique name for the new instance.
 	  @interface: interface the instance will use.
@@ -60,6 +67,21 @@
 	<method name='DestroyInstance'>
 		<arg name="iname" type="s" direction="in" />
 	</method>
+	<!--
+	  VrrpStarted:
+
+	  Emitted when VRRP process is started, just after
+	  the bus is connected.
+	-->
+	<signal name="VrrpStarted">
+	</signal>
+	<!--
+	  VrrpRestarted:
+
+	  Emitted when VRRP process is restarted
+	-->
+	<signal name="VrrpRestarted">
+	</signal>
 	<!--
 	  VrrpStopped:
 
