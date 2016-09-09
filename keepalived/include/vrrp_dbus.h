@@ -43,5 +43,6 @@ void dbus_remove_object(vrrp_t *);
 void dbus_add_new_instances(list, list);
 bool dbus_start(void);
 void dbus_stop(void);
+void dbus_send_restart_signal(void);
 
 #endif

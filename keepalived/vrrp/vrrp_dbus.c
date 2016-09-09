@@ -429,6 +429,7 @@ on_bus_acquired(GDBusConnection *connection,
 	gchar *path;
 	element e;
 	guint instance;
+	GError *local_error = NULL;
 
 	log_message(LOG_INFO, "Acquired DBus bus %s\n", name);
 
@@ -456,6 +457,12 @@ on_bus_acquired(GDBusConnection *connection,
 		if (instance)
 			g_hash_table_insert(objects, vrrp->iname, GUINT_TO_POINTER(instance));
 	}
+
+	/* Send a signal to say we have started */
+	path = dbus_object_create_path_vrrp();
+	g_dbus_connection_emit_signal(global_connection, NULL, path,
+				      DBUS_VRRP_INTERFACE, "VrrpStarted", NULL, &local_error);
+	g_free(path);
 
 	/* Notify DBus of the state of our instances */
 	for (e = LIST_HEAD(vrrp_data->vrrp); e; ELEMENT_NEXT(e)) {
@@ -596,6 +603,22 @@ dbus_send_state_signal(vrrp_t *vrrp)
 				      "VrrpStatusChange", args, &local_error);
 
 	g_free(object_path);
+}
+
+/* send signal VrrpRestarted */
+void
+dbus_send_restart_signal(void)
+{
+	GError *local_error = NULL;
+	gchar *path;
+
+	if (global_connection == NULL)
+		return;
+
+	path = dbus_object_create_path_vrrp();
+	g_dbus_connection_emit_signal(global_connection, NULL, path,
+				      DBUS_VRRP_INTERFACE, "VrrpRestarted", NULL, &local_error);
+	g_free(path);
 }
 
 static int
