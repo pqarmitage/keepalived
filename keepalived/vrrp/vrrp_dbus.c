@@ -320,8 +320,11 @@ handle_get_property(GDBusConnection  *connection,
 	family = !g_strcmp0(dirs[path_length-1], "IPv4") ? AF_INET : !g_strcmp0(dirs[path_length-1], "IPv6") ? AF_INET6 : AF_UNSPEC;
 
 	args = g_variant_new("(suu)", interface, vrid, family);
-	ent = process_method_call(action, args, true);
 
+	/* We are finished with all the object_path strings now */
+	g_strfreev(dirs);
+
+	ent = process_method_call(action, args, true);
 	if (ent) {
 		if (ent->reply == DBUS_SUCCESS) {
 			if (action == DBUS_GET_NAME)
