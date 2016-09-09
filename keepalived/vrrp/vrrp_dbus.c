@@ -296,6 +296,15 @@ handle_get_property(GDBusConnection  *connection,
 		return NULL;
 	}
 
+	if (!g_strcmp0(property_name, "Name"))
+		action = DBUS_GET_NAME;
+	else if (!g_strcmp0(property_name, "State"))
+		action = DBUS_GET_STATUS;
+	else {
+		log_message(LOG_INFO, "Property %s does not exist", property_name);
+		return NULL;
+	}
+
 #ifdef HAVE_DECL_CLONE_NEWNET
 	if(network_namespace)
 		path_length++;
@@ -309,15 +318,6 @@ handle_get_property(GDBusConnection  *connection,
 	interface = dirs[path_length-3];
 	vrid = atoi(dirs[path_length-2]);
 	family = !g_strcmp0(dirs[path_length-1], "IPv4") ? AF_INET : !g_strcmp0(dirs[path_length-1], "IPv6") ? AF_INET6 : AF_UNSPEC;
-
-	if (!g_strcmp0(property_name, "Name"))
-		action = DBUS_GET_NAME;
-	else if (!g_strcmp0(property_name, "State"))
-		action = DBUS_GET_STATUS;
-	else {
-		log_message(LOG_INFO, "Property %s does not exist", property_name);
-		return NULL;
-	}
 
 	args = g_variant_new("(suu)", interface, vrid, family);
 	ent = process_method_call(action, args, true);
