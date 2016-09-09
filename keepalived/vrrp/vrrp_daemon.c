@@ -390,6 +390,12 @@ reload_vrrp_thread(thread_t * thread)
 	/* free backup data */
 	free_vrrp_data(old_vrrp_data);
 	free_old_interface_queue();
+
+#ifdef _WITH_DBUS_
+	if (global_data->enable_dbus)
+		dbus_send_restart_signal();
+#endif
+
 	UNSET_RELOAD;
 
 	return 0;
