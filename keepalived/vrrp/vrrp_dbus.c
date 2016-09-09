@@ -91,7 +91,7 @@ set_valid_path(char *valid_path, const char *path)
 	char *str_out;
 
 	for (str_in = path, str_out = valid_path; *str_in; str_in++, str_out++) {
-		if (!isalnum(*str_in) && *str_in != '_')
+		if (!isalnum(*str_in))
 			*str_out = '_';
 		else
 			*str_out = *str_in;
@@ -101,11 +101,25 @@ set_valid_path(char *valid_path, const char *path)
 	return valid_path;
 }
 
+static bool
+valid_path_cmp(const char *path, const char *valid_path)
+{
+	for ( ; *path && *valid_path; path++, valid_path++) {
+		if (!isalnum(*path)) {
+			if (*valid_path != '_')
+				return true;
+		}
+		else if (*path != *valid_path)
+			return true;
+	}
+
+	return *path != *valid_path;
+}
+
 static vrrp_t *
 get_vrrp_instance(const char *ifname, int vrid, int family)
 {
 	element e;
-	char standardized_name[sizeof ((vrrp_t*)NULL)->ifp->ifname];
 	vrrp_t *vrrp;
 
 	if (LIST_ISEMPTY(vrrp_data->vrrp))
@@ -115,13 +129,9 @@ get_vrrp_instance(const char *ifname, int vrid, int family)
 		vrrp = ELEMENT_DATA(e);
 
 		if (vrrp->vrid == vrid &&
-		    vrrp->family == family) {
-			/* The only valid characters in a path a A-Z, a-z, 0-9, _ */
-			set_valid_path(standardized_name, IF_NAME(IF_BASE_IFP(vrrp->ifp)));
-
-			if (!strcmp(ifname, standardized_name))
+		    vrrp->family == family &&
+		    !valid_path_cmp(IF_BASE_IFP(vrrp->ifp)->ifname, ifname))
 				return vrrp;
-		}
 	}
 
 	return NULL;
