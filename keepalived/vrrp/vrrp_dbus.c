@@ -622,7 +622,7 @@ dbus_send_restart_signal(void)
 
 	path = dbus_object_create_path_vrrp();
 	g_dbus_connection_emit_signal(global_connection, NULL, path,
-				      DBUS_VRRP_INTERFACE, "VrrpRestarted", NULL, &local_error);
+				      DBUS_VRRP_INTERFACE, "VrrpReloaded", NULL, &local_error);
 	g_free(path);
 }
 

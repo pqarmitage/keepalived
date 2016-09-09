@@ -76,11 +76,11 @@
 	<signal name="VrrpStarted">
 	</signal>
 	<!--
-	  VrrpRestarted:
+	  VrrpReloaded:
 
-	  Emitted when VRRP process is restarted
+	  Emitted when VRRP process reloads its configuration
 	-->
-	<signal name="VrrpRestarted">
+	<signal name="VrrpReloaded">
 	</signal>
 	<!--
 	  VrrpStopped:
