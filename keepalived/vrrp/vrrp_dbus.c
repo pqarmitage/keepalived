@@ -64,8 +64,6 @@ typedef enum dbus_error {
 typedef struct dbus_queue_ent {
 	dbus_action_t action;
 	dbus_error_t reply;
-	char str[IFNAMSIZ+1];
-	int val;
 	GVariant *args;
 } dbus_queue_ent_t;
 
@@ -181,8 +179,8 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 // TODO - don't MALLOC - not thread safe - do we need a queue - just one at a time
 	dbus_queue_ent_t *ent = MALLOC(sizeof(dbus_queue_ent_t));
 	element e;
-	char *param = NULL;
-	int val = 0;
+	char *intf = NULL;
+	int vrid = 0;
 	char *msg;
 	int ret;
 
@@ -192,26 +190,12 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 	ent->action = action;
 
 	if (args) {
-		if (g_variant_is_of_type(args, G_VARIANT_TYPE("(su)")))
-			g_variant_get(args, "(su)", &param, &val);
-		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(s)")))
-			g_variant_get(args, "(s)", &param);
-		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(suu)"))) {
-			int family;
-			g_variant_get(args, "(suu)", &param, &val, &family);
-			ent->args = g_variant_new("(u)", family);
-		}
-		else if (g_variant_is_of_type(args, G_VARIANT_TYPE("(ssuu)"))) {
-			char *iname;
-			int family;
-			g_variant_get(args, "(ssuu)", &iname, &param, &val, &family);
-			ent->args = g_variant_new("(su)", iname, family);
+		ent->args = args;
+		if (g_variant_is_of_type(args, G_VARIANT_TYPE_VARDICT)) {
+			g_variant_lookup(args, "interface", "s", &intf);
+			g_variant_lookup(args, "group", "u", &vrid);
 		}
 	}
-
-	if (param)
-		strcpy(ent->str, param);
-	ent->val = val;
 	pthread_mutex_lock(&in_queue_lock);
 	list_add(dbus_in_queue, ent);
 	pthread_mutex_unlock(&in_queue_lock);
@@ -246,9 +230,9 @@ process_method_call(dbus_action_t action, GVariant *args, bool return_data)
 		log_message(LOG_INFO, "DBus expected receive action %d and received %d", action, ent->action);
 	if (ent->reply != DBUS_SUCCESS) {
 		if (ent->reply == DBUS_INTERFACE_NOT_FOUND)
-			log_message(LOG_INFO, "Unable to find DBus requested interface %s/%d", param, val);
+			log_message(LOG_INFO, "Unable to find DBus requested interface %s/%d", intf, vrid);
 		else if (ent-> reply == DBUS_OBJECT_ALREADY_EXISTS)
-			log_message(LOG_INFO, "Unable to create DBus requested object with interface %s/%d", param, val);
+			log_message(LOG_INFO, "Unable to create DBus requested object with interface %s/%d", intf, vrid);
 		else
 			log_message(LOG_INFO, "Unknown DBus reply %d", ent->reply);
 	}
@@ -280,6 +264,7 @@ handle_get_property(GDBusConnection  *connection,
 	unsigned family;
 	int action;
 	GVariant *args;
+	GVariantDict *dict;
 
 	if (g_strcmp0(interface_name, DBUS_VRRP_INSTANCE_INTERFACE)) {
 		log_message(LOG_INFO, "Interface %s has not been implemented yet", interface_name);
@@ -298,7 +283,7 @@ handle_get_property(GDBusConnection  *connection,
 	dirs = g_strsplit(object_path, "/", path_length);
 	interface = dirs[path_length-3];
 	vrid = atoi(dirs[path_length-2]);
-	family = !g_strcmp0(dirs[path_length-1], "IPv4") ? AF_INET : !g_strcmp0(dirs[path_length-1], "IPv6") ? AF_INET6 : AF_UNSPEC;
+	family = !g_strcmp0(dirs[path_length-1], "IPv4") ? 4 : !g_strcmp0(dirs[path_length-1], "IPv6") ? 6 : 0;
 
 	if (!g_strcmp0(property_name, "Name"))
 		action = DBUS_GET_NAME;
@@ -309,15 +294,17 @@ handle_get_property(GDBusConnection  *connection,
 		return NULL;
 	}
 
-	args = g_variant_new("(suu)", interface, vrid, family);
-	ent = process_method_call(action, args, true);
 
+	dict = g_variant_dict_new(NULL);
+	g_variant_dict_insert_value(dict, "interface", g_variant_new_string(interface));
+	g_variant_dict_insert_value(dict, "group", g_variant_new_uint32(vrid));
+	g_variant_dict_insert_value(dict, "family", g_variant_new_uint32(family));
+	args = g_variant_dict_end(dict);
+	ent = process_method_call(action, args, true);
+	g_variant_dict_unref(dict);
 	if (ent) {
 		if (ent->reply == DBUS_SUCCESS) {
-			if (action == DBUS_GET_NAME)
-				ret = g_variant_new("(s)", ent->str);
-			else if (action == DBUS_GET_STATUS)
-				ret = g_variant_new("(u)", ent->val);
+			ret = ent->args;
 		}
 
 		FREE(ent);
@@ -345,10 +332,30 @@ handle_method_call(GDBusConnection *connection,
 			process_method_call(DBUS_PRINT_STATS, NULL, false);
 			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else if (g_strcmp0(method_name, "CreateInstance") == 0) {
-			process_method_call(DBUS_CREATE_INSTANCE, parameters, false);
+			gchar *iname, *interface;
+			guint group, family;
+			GVariant *args;
+			GVariantDict *dict;
+
+			g_variant_get(parameters, "(ssuu)", &iname, &interface, &group, &family);
+			dict = g_variant_dict_new(NULL);
+			g_variant_dict_insert_value(dict, "name", g_variant_new_string(iname));
+			g_variant_dict_insert_value(dict, "interface", g_variant_new_string(interface));
+			g_variant_dict_insert_value(dict, "group", g_variant_new_uint32(group));
+			g_variant_dict_insert_value(dict, "family", g_variant_new_uint32(family));
+			args = g_variant_dict_end(dict);
+			process_method_call(DBUS_CREATE_INSTANCE, args, false);
+			g_variant_dict_unref(dict);
 			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else if (g_strcmp0(method_name, "DestroyInstance") == 0) {
-			process_method_call(DBUS_DESTROY_INSTANCE, parameters, false);
+			GVariant *args;
+			GVariantDict *dict;
+
+			dict = g_variant_dict_new(NULL);
+			g_variant_dict_insert_value(dict, "name", g_variant_get_child_value(parameters, 0));
+			args = g_variant_dict_end(dict);
+			process_method_call(DBUS_DESTROY_INSTANCE, args, false);
+			g_variant_dict_unref(dict);
 			g_dbus_method_invocation_return_value(invocation, NULL);
 		} else
 			log_message(LOG_INFO, "Method %s has not been implemented yet", method_name);
@@ -359,7 +366,14 @@ handle_method_call(GDBusConnection *connection,
 			if (!name_call)
 				log_message(LOG_INFO, "Name property not found");
 			else {
-				process_method_call(DBUS_SEND_GARP, name_call, false);
+				GVariant *args;
+				GVariantDict *dict;
+
+				dict = g_variant_dict_new(NULL);
+				g_variant_dict_insert_value(dict, "name", name_call);
+				args = g_variant_dict_end(dict);
+				process_method_call(DBUS_SEND_GARP, args, false);
+				g_variant_dict_unref(dict);
 				g_dbus_method_invocation_return_value(invocation, NULL);
 			}
 		} else
@@ -686,7 +700,6 @@ handle_dbus_msg(thread_t *thread)
 	list l;
 	element e;
 	vrrp_t *vrrp;
-	unsigned family;
 
 	read(dbus_in_pipe[0], &recv_buf, 1);
 
@@ -703,21 +716,29 @@ handle_dbus_msg(thread_t *thread)
 			vrrp_print_stats();
 		}
 		else if (ent->action == DBUS_CREATE_INSTANCE) {
-			gchar *name;
-			g_variant_get(ent->args, "(su)", &name, &family);
+			gchar *name, *interface;
+			int group, family;
+			g_variant_lookup(ent->args, "name", "s", &name);
+			g_variant_lookup(ent->args, "interface", "s", &interface);
+			g_variant_lookup(ent->args, "group", "u", &group);
+			g_variant_lookup(ent->args, "family", "u", &family);
 
-			ent->reply = dbus_create_object_params(name, ent->str, ent->val, family == 4 ? AF_INET : family == 6 ? AF_INET6 : AF_UNSPEC);
+			ent->reply = dbus_create_object_params(name, interface, group, family == 4 ? AF_INET : family == 6 ? AF_INET6 : AF_UNSPEC);
 		}
 		else if (ent->action == DBUS_DESTROY_INSTANCE) {
-			dbus_unregister_object(ent->str);
+			gchar *name;
+			g_variant_lookup(ent->args, "name", "s", &name);
+			dbus_unregister_object(name);
 		}
 		else if (ent->action == DBUS_SEND_GARP) {
+			char *name;
+			g_variant_lookup(ent->args, "name", "s", &name);
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
 			l = vrrp_data->vrrp;
 			if (!LIST_ISEMPTY(l)) {
 				for (e = LIST_HEAD(l); e; ELEMENT_NEXT(e)) {
 					vrrp = ELEMENT_DATA(e);
-					if (!strcmp(vrrp->iname, ent->str)) {
+					if (!strcmp(vrrp->iname, name)) {
 						log_message(LOG_INFO, "Sending garps on %s on DBus request", vrrp->iname);
 						vrrp_send_link_update(vrrp, 1);
 						ent->reply = DBUS_SUCCESS;
@@ -729,23 +750,23 @@ handle_dbus_msg(thread_t *thread)
 		else if (ent->action == DBUS_GET_NAME ||
 			 ent->action == DBUS_GET_STATUS) {
 			/* we look for the vrrp instance object that corresponds to our interface and group */
+			char *interface;
+			int group, family;
+
 			ent->reply = DBUS_INTERFACE_NOT_FOUND;
-
-			g_variant_get(ent->args, "(u)", &family);
-			vrrp = get_vrrp_instance(ent->str, ent->val, family);
-
+			g_variant_lookup(ent->args, "interface", "s", &interface);
+			g_variant_lookup(ent->args, "group", "u", &group);
+			g_variant_lookup(ent->args, "family", "u", &family);
+			vrrp = get_vrrp_instance(interface, group, family == 4 ? AF_INET : family == 6 ? AF_INET6 : AF_UNSPEC);
 			if (vrrp) {
 				/* the property_name argument is the property we want to Get */
 				if (ent->action == DBUS_GET_NAME) {
-					strncpy(ent->str, vrrp->iname, sizeof(ent->str));
-					ent->str[sizeof(ent->str) - 1] = '\0';
+					ent->args = g_variant_new_string(vrrp->iname);
 				}
 				else if (ent->action == DBUS_GET_STATUS)
-					ent->val = vrrp->state;
+					ent->args = g_variant_new_uint32(vrrp->state);
 				else {
-					/* How did we get here? */
-					ent->val = 0;
-					ent->str[0] = '\0';
+					log_message(LOG_INFO, "How did we get here?");
 				}
 				ent->reply = DBUS_SUCCESS;
 			}
