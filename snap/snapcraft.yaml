@@ -7,16 +7,30 @@ description: |
   Server (IPVS) kernel module.
 
 grade: stable
-confinement: classic
+confinement: strict
 
 apps:
   daemon:
     daemon: forking
     command: sbin/keepalived
+    plugs:
+      - network
+      - network-bind
+      - network-control
+      - firewall-control
+      - kernel-module-control
   keepalived:
     command: sbin/keepalived
+    plugs:
+      - network
+      - network-bind
+      - network-control
+      - firewall-control
+      - kernel-module-control
   genhash:
     command: bin/genhash
+    plugs:
+      - network
 
 parts:
   keepalived:
@@ -31,6 +45,7 @@ parts:
       - --enable-snmp
       - --enable-snmp-rfc
       - --disable-libipset-dynamic
+      - --with-default-config-file=/var/snap/keepalived/current/keepalived.conf
     override-build: |
       snapcraftctl build
       VER=$(grep GIT_COMMIT lib/git-commit.h | cut -d'"' -f2)
